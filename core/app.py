@@ -36,6 +36,7 @@ from tools.local import echo as echo_tools
 from tools.local import filesystem as fs_tools
 from tools.local import knowledge as knowledge_tools
 from tools.local import life as life_tools
+from tools.android_tools import register_all as register_android_tools
 from tools.registry import ToolRegistry
 
 
@@ -92,14 +93,23 @@ class AgentApp:
         # permissions (confirmation hook is CLI/UI-provided)
         permissions = PermissionManager(config)
 
-        # observers (environmental verification)
-        observers = default_observers(str(sandbox))
+        # devices (created before observers/executor so they can reference them)
+        devices = DeviceManager()
+        win = WindowsDevice(registry)
+        win.connect()
+        devices.register(win)
+        android = AndroidDevice(fingerprint="unpaired", db=db)
+        devices.register(android)
+        register_android_tools(registry, devices)
+
+        # observers (environmental verification) — android observer wired to the device
+        observers = default_observers(str(sandbox), android_device=android)
 
         # reasoner for planning
         reasoner = reasoner or build_reasoner(config, llm)
         planner = Planner(db.session_factory, reasoner)
 
-        # executor: owns the loop + policy
+        # executor: owns the loop + policy (devices available in tool ctx)
         policy = ExecutionPolicy(
             max_runtime_s=config.get_float("executor.max_runtime_s", 120.0),
             max_steps=config.get_int("executor.max_steps", 8),
@@ -109,14 +119,7 @@ class AgentApp:
             max_cost=config.get_float("executor.max_cost", 1.0),
             max_recursion_depth=config.get_int("executor.max_recursion_depth", 3),
         )
-        executor = Executor(db, llm, memory, registry, observers, policy)
-
-        devices = DeviceManager()
-        win = WindowsDevice(registry)
-        win.connect()
-        devices.register(win)
-        android = AndroidDevice(fingerprint="demo-pixel", device_token="demo-token")
-        devices.register(android)
+        executor = Executor(db, llm, memory, registry, observers, policy, devices=devices)
 
         orchestrator = AgentOrchestrator(config, bus, db, memory, llm, registry,
                                          planner, devices, executor, observers, permissions)

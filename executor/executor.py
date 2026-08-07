@@ -51,13 +51,14 @@ class StepOutcome:
 class Executor:
     def __init__(self, db: Database, llm: LLMManager, memory: MemoryManager,
                  registry: ToolRegistry, observers: ObserverManager,
-                 policy: ExecutionPolicy | None = None) -> None:
+                 policy: ExecutionPolicy | None = None, devices=None) -> None:
         self.db = db
         self.llm = llm
         self.memory = memory
         self.registry = registry
         self.observers = observers
         self.policy = policy or ExecutionPolicy()
+        self.devices = devices
 
     # ------------------------------------------------------------------ main entry
     async def run_step(self, session_id: str, plan, step, goal_text: str,
@@ -203,7 +204,7 @@ class Executor:
             s.commit()
             exec_id = row.id
         result = await self.registry.execute(tc.name, tc.arguments, ctx={
-            "session_id": session_id, "confirm": True})
+            "session_id": session_id, "confirm": True, "devices": self.devices})
         with self.db.session() as s:
             row = s.get(ToolExecution, exec_id)
             row.status = "ok" if result.ok else "error"

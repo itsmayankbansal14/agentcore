@@ -133,7 +133,50 @@ def create_app(agent: AgentApp | None = None) -> FastAPI:
 
     @app.get("/api/devices")
     async def devices() -> dict:
-        return {d.name: d.health() for d in agent_app.devices.all()}
+        out = {}
+        for d in agent_app.devices.all():
+            h = d.health()
+            out[d.name] = {**h, "capabilities": d.capabilities()}
+        return out
+
+    @app.post("/api/devices/pair")
+    async def devices_pair() -> dict:
+        """Start pairing: returns a one-time 6-digit code the phone app uses."""
+        android = agent_app.devices.get("android")
+        if android is None:
+            return {"error": "android device not configured"}, 400
+        return android.start_pairing()
+
+    @app.get("/api/devices/android/status")
+    async def android_status() -> dict:
+        android = agent_app.devices.get("android")
+        if android is None:
+            return {"error": "android not configured"}, 400
+        return android.health()
+
+    # -------------------------------------------------------------- WS (phone)
+    @app.websocket("/ws/android")
+    async def ws_android(ws: WebSocket) -> None:
+        """Phone companion endpoint — the device connects HERE (laptop is server)."""
+        await ws.accept()
+        android = agent_app.devices.get("android")
+        if android is None:
+            await ws.close(code=1011, reason="android device not configured")
+            return
+        try:
+            ok = await android.attach(ws)
+            if not ok:
+                return  # attach closed the socket (already connected)
+            # keep the task alive; attach() spawned its own receive loop
+            while True:
+                await asyncio.sleep(3600)
+        except Exception:  # noqa: BLE001
+            pass
+        finally:
+            # only tear down if THIS socket is still the active device link —
+            # a rejected duplicate must not disconnect the real phone.
+            if getattr(android, "_ws", None) is ws:
+                android.disconnect()
 
     @app.get("/api/memory/facts")
     async def facts(session_id: str = "web") -> dict:

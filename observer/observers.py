@@ -128,33 +128,35 @@ class SystemObserver(Observer):
 
 
 class AndroidObserver(Observer):
-    """ADB-based phone state (available when adb is installed + device connected)."""
+    """Phone-state verification via the AndroidDevice's live health
+    (WS transport, not ADB — ADB is only an optional extra)."""
     source = "android"
 
-    def _devices(self) -> list[str]:
-        if not shutil.which("adb"):
-            return []
-        try:
-            r = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=5)
-            return [ln.split("\t")[0] for ln in r.stdout.splitlines()[1:]
-                    if ln.strip() and "device" in ln]
-        except Exception:
-            return []
+    def __init__(self, device=None) -> None:
+        self._device = device   # AndroidDevice (or None → unknown)
+
+    def _state(self) -> dict:
+        if self._device is None:
+            return {"online": False, "paired": False}
+        h = self._device.health()
+        return {"online": bool(h.get("online")), "paired": bool(h.get("paired")),
+                "device": h.get("device")}
 
     def verify(self, tool_name, args, result) -> list[Observation]:
-        if tool_name.startswith("android_open_app") or tool_name.startswith("android_open_"):
-            devs = self._devices()
-            ok = len(devs) > 0
+        if tool_name.startswith("android_"):
+            st = self._state()
+            ok = st["online"] and st["paired"]
             return [Observation(source=self.source, ok=ok,
-                                data={"adb_devices": devs},
-                                message="adb device connected" if ok else "no adb device")]
+                                data=st,
+                                message=("phone connected & paired"
+                                         if ok else "phone offline or unpaired"))]
         return []
 
     def poll(self) -> list[Observation]:
-        devs = self._devices()
-        return [Observation(source=self.source, ok=bool(devs),
-                            data={"adb_devices": devs},
-                            message=f"{len(devs)} adb device(s)")]
+        st = self._state()
+        return [Observation(source=self.source, ok=st["online"] and st["paired"],
+                            data=st,
+                            message="android device connected" if st["online"] else "android offline")]
 
 
 class ScreenObserver(Observer):
