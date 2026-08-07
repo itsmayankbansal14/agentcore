@@ -98,6 +98,26 @@ def main() -> None:
     r = client.get("/api/logs?lines=10")
     check("logs panel", r.status_code == 200 and "logs" in r.json())
 
+    print("\n[G2] Runtime APIs (executor / observer / runtime)")
+    r = client.get("/api/executor?session_id=api")
+    check("executor state", r.status_code == 200 and "phase" in r.json()
+          and "policy" in r.json(), r.text[:80])
+    r = client.get("/api/observer?n=5")
+    check("observer events", r.status_code == 200 and "observations" in r.json())
+    r = client.get("/api/runtime")
+    check("runtime status", r.status_code == 200 and "provider" in r.json()
+          and "uptime_s" in r.json(), r.text[:80])
+
+    print("\n[G3] SSE execution stream emits progress events + final")
+    prov.enqueue('[TOOL time_now {}]', 'the time was retrieved')
+    with client.stream("POST", "/api/chat/stream",
+                       json={"message": "what time is it", "session_id": "api"}) as s:
+        body = "".join(s.iter_text())
+    check("sse has final", '"type": "final"' in body, body[:120])
+    check("sse has tool event", '"tool_started"' in body or '"tool_result"' in body,
+          body[:200])
+    check("sse has step event", '"step_completed"' in body, body[:200])
+
     print("\n[H] dashboard.app entry point (thin, via AgentApp)")
     from dashboard.app import create_app as dash_create_app
     dash_client = TestClient(dash_create_app(app))

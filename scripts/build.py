@@ -43,7 +43,7 @@ EXCLUDE_FILES = {".env"}
 
 HIDDEN_IMPORTS = [
     "sqlalchemy", "structlog", "pydantic", "fastapi", "uvicorn",
-    "websockets", "numpy", "pypdf", "starlette",
+    "websockets", "numpy", "pypdf", "starlette", "pystray", "PIL", "watchfiles",
     # uvicorn submodules PyInstaller often misses
     "uvicorn.logging", "uvicorn.loops", "uvicorn.loops.auto",
     "uvicorn.protocols", "uvicorn.protocols.http", "uvicorn.protocols.http.auto",
@@ -167,6 +167,7 @@ def stage_pyinstaller() -> bool:
         # spec directory (build/), NOT cwd; relative paths would 404
         "--add-data", f"{ROOT / 'ui'}{_pyinstaller_sep()}ui",
         "--add-data", f"{ROOT / 'config'}{_pyinstaller_sep()}config",
+        "--add-data", f"{ROOT / 'dashboard'}{_pyinstaller_sep()}dashboard",
     ]
     for hi in HIDDEN_IMPORTS:
         cmd += ["--hidden-import", hi]

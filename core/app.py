@@ -119,7 +119,8 @@ class AgentApp:
             max_cost=config.get_float("executor.max_cost", 1.0),
             max_recursion_depth=config.get_int("executor.max_recursion_depth", 3),
         )
-        executor = Executor(db, llm, memory, registry, observers, policy, devices=devices)
+        executor = Executor(db, llm, memory, registry, observers, policy,
+                           devices=devices, bus=bus)
 
         orchestrator = AgentOrchestrator(config, bus, db, memory, llm, registry,
                                          planner, devices, executor, observers, permissions)

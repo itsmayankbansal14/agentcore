@@ -74,12 +74,16 @@ class FactsRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # app factory
 # ---------------------------------------------------------------------------
+_START_TIME = time.time()
+
+
 def create_app(agent: AgentApp | None = None, template: Path | None = None) -> FastAPI:
     app = FastAPI(title="AgentCore API", version="0.1.0")
     agent_app = agent or AgentApp.create()
 
     from api.ws import WSBroadcaster
     broadcaster = WSBroadcaster()
+    app.state.broadcaster = broadcaster   # runtime API reads WS client count
 
     @app.on_event("startup")
     async def _startup() -> None:
@@ -105,11 +109,51 @@ def create_app(agent: AgentApp | None = None, template: Path | None = None) -> F
 
     @app.post("/api/chat/stream")
     async def chat_stream(req: ChatRequest) -> StreamingResponse:
+        """SSE execution stream: emits live runtime events (tool started/result,
+        step completed/failed, provider switched) then the final answer.
+        Reusable by the dashboard, future desktop UI, voice, and Android."""
+        _WATCH = {EventType.TOOL_STARTED, EventType.TOOL_RESULT,
+                  EventType.STEP_COMPLETED, EventType.STEP_FAILED,
+                  EventType.PROVIDER_SWITCHED, EventType.PROVIDER_FAILED,
+                  EventType.USER_MESSAGE_RECEIVED}
+
         async def gen():
-            # SSE: one data event per chunk (MVP), keepalive comment
-            response = await agent_app.orchestrator.handle_user_message(
-                req.session_id, req.message)
-            yield f"data: {json.dumps({'type': 'final', 'text': response})}\n\n"
+            q: asyncio.Queue = asyncio.Queue()
+
+            def hook(ev):
+                try:
+                    if ev.session_id == req.session_id or ev.session_id is None:
+                        q.put_nowait(ev)
+                except Exception:  # noqa: BLE001
+                    pass
+            agent_app.bus.subscribe_any(hook)
+            task = asyncio.create_task(
+                agent_app.orchestrator.handle_user_message(req.session_id, req.message))
+
+            def sse(ev):
+                return (f"data: {json.dumps({'type': 'event', 'event': ev.type.value,
+                                             **ev.to_log()})}\n\n")
+
+            try:
+                while True:
+                    # drain queued events, then final when the task finishes
+                    while not q.empty():
+                        ev = q.get_nowait()
+                        if ev.type in _WATCH:
+                            yield sse(ev)
+                    if task.done():
+                        break
+                    try:
+                        ev = await asyncio.wait_for(q.get(), timeout=0.25)
+                        if ev.type in _WATCH:
+                            yield sse(ev)
+                    except asyncio.TimeoutError:
+                        continue
+                text = task.result()
+            except Exception as e:  # noqa: BLE001
+                text = f"error: {e}"
+            yield f"data: {json.dumps({'type': 'final', 'text': text})}\n\n"
+
         return StreamingResponse(gen(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache",
                                           "X-Accel-Buffering": "no"})
@@ -259,18 +303,78 @@ def create_app(agent: AgentApp | None = None, template: Path | None = None) -> F
 
     @app.get("/api/executions")
     async def executions(session_id: str = "web", limit: int = 12) -> dict:
-        """Recent execution history (dashboard Execution panel)."""
+        """Recent execution history (dashboard Execution panel) + token/cost totals."""
         from database.models import Execution
         with agent_app.db.session() as s:
             rows = (s.query(Execution).filter_by(session_id=session_id)
                     .order_by(Execution.id.desc()).limit(min(limit, 50)).all())
+            total_tokens = sum((r.tokens_in or 0) + (r.tokens_out or 0) for r in rows)
+            total_cost = sum(r.cost or 0.0 for r in rows)
             return {"executions": [{
                 "id": r.id, "goal": (r.goal or "")[:80], "status": r.status,
                 "duration_ms": r.duration_ms,
                 "tokens": (r.tokens_in or 0) + (r.tokens_out or 0),
                 "cost": round(r.cost or 0.0, 4),
                 "started": (r.started_at or "")[:19],
-            } for r in rows]}
+            } for r in rows],
+                "total_tokens": total_tokens,
+                "total_cost": round(total_cost, 4)}
+
+    @app.get("/api/executor")
+    async def executor_state(session_id: str = "web") -> dict:
+        """Executor state: phase (idle/executing), active step, policy budgets."""
+        policy = agent_app.executor.policy
+        plan = agent_app.planner.get_active_plan(session_id)
+        phase = "idle"
+        active = None
+        if plan is not None:
+            for st in plan.steps:
+                if st.status in ("RUNNING", "WAITING_TOOL", "OBSERVING",
+                                 "RETRYING", "PLANNING"):
+                    phase = "executing"
+                    active = {"title": st.title, "status": st.status, "order": st.order_idx}
+                    break
+        return {
+            "phase": phase,
+            "active_step": active,
+            "policy": {
+                "max_runtime_s": policy.max_runtime_s,
+                "max_steps": policy.max_steps,
+                "max_tokens": policy.max_tokens,
+                "max_cost": policy.max_cost,
+                "max_retries": policy.max_retries,
+                "step_timeout_s": policy.step_timeout_s,
+            },
+        }
+
+    @app.get("/api/observer")
+    async def observer_state(n: int = 20) -> dict:
+        """Recent observer observations (dashboard Observer panel)."""
+        return {"observations": agent_app.observers.recent(min(n, 100))}
+
+    @app.get("/api/runtime")
+    async def runtime_status() -> dict:
+        """Runtime identity/health — the SAME AgentApp serves every interface."""
+        keys = agent_app.llm.router.healthy_keys()
+        provider = keys[0].provider if keys else "none"
+        model = keys[0].model if keys else ""
+        ws_clients = 0
+        try:
+            ws_clients = app.state.broadcaster.clients()
+        except Exception:  # noqa: BLE001
+            pass
+        return {
+            "name": "AgentCore Runtime",
+            "version": "0.1.0",
+            "provider": provider,
+            "model": model,
+            "uptime_s": round(time.time() - _START_TIME, 1),
+            "tools": len(agent_app.registry),
+            "devices": {d.name: d.health().get("online") for d in agent_app.devices.all()},
+            "ws_clients": ws_clients,
+            "db": str(agent_app.db.path),
+            "log_dir": str(agent_app.config.log_dir),
+        }
 
     @app.get("/api/logs")
     async def logs(lines: int = 30) -> dict:

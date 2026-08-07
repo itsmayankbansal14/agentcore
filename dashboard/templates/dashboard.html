@@ -70,6 +70,8 @@ body{font-family:'Segoe UI',Inter,system-ui,sans-serif;background:#07070d;color:
     <span class="chip on" id="chip-provider">provider —</span>
     <span class="chip purple" id="chip-model">model —</span>
     <span class="chip cyan" id="chip-tools">tools —</span>
+    <span class="chip" id="chip-exec">exec —</span>
+    <span class="chip" id="chip-rt">runtime —</span>
     <span class="chip" id="chip-ws">WS ●</span>
   </div>
 </div>
@@ -106,6 +108,7 @@ body{font-family:'Segoe UI',Inter,system-ui,sans-serif;background:#07070d;color:
       <h3>⚙️ Status <span style="color:#6b7280;font-size:9px;text-transform:none">current task / plan / step</span></h3>
       <div class="statusrow" id="statusRow"><span class="minichip">loading…</span></div>
       <div style="padding:6px 14px 4px;font-size:10px;color:#a5b4fc;text-transform:uppercase;letter-spacing:1px">▶ Recent executions</div>
+      <div id="execTotals" style="padding:0 14px 6px;font-size:10px;color:#6b7280"></div>
       <div class="eventlog" id="execList" style="max-height:150px"><div>loading…</div></div>
     </div>
 
@@ -117,6 +120,7 @@ body{font-family:'Segoe UI',Inter,system-ui,sans-serif;background:#07070d;color:
         <div class="tab" data-tab="knowledge" onclick="tab('knowledge')">📚 Knowledge</div>
         <div class="tab" data-tab="planner" onclick="tab('planner')">📋 Planner</div>
         <div class="tab" data-tab="logs" onclick="tab('logs')">📜 Logs</div>
+        <div class="tab" data-tab="observer" onclick="tab('observer')">👁 Observer</div>
       </div>
       <div class="tabpane active" id="pane-tools"><ul id="toolsList"><li>loading…</li></ul></div>
       <div class="tabpane" id="pane-devices"><ul id="devicesList"><li>loading…</li></ul></div>
@@ -141,6 +145,13 @@ body{font-family:'Segoe UI',Inter,system-ui,sans-serif;background:#07070d;color:
           <span style="color:#6b7280;font-size:10px">last <span id="logCount">0</span> lines of agentcore.jsonl</span>
         </div>
         <div class="eventlog" id="logLines" style="max-height:320px"><div>loading…</div></div>
+      </div>
+      <div class="tabpane" id="pane-observer">
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+          <button class="btn" style="padding:4px 10px;font-size:10px" onclick="refreshObserver()">↻ refresh</button>
+          <span style="color:#6b7280;font-size:10px">environmental verification (filesystem · time · network · clipboard · system · android · screen)</span>
+        </div>
+        <div class="eventlog" id="observerList" style="max-height:320px"><div>loading…</div></div>
       </div>
     </div>
 
@@ -244,12 +255,13 @@ async function refreshPlanner(){
 async function refreshExecutions(){
   try{
     const d = await (await fetch('/api/executions?session_id='+sid()+'&limit=8')).json();
-    if(!d.executions.length){ $('execList').innerHTML = '<div>(no executions yet)</div>'; return; }
+    if(!d.executions.length){ $('execList').innerHTML = '<div>(no executions yet)</div>'; $('execTotals').textContent=''; return; }
     const col = {DONE:'#34d399',FAILED:'#f87171',CANCELLED:'#fbbf24',RUNNING:'#a78bfa'};
     $('execList').innerHTML = d.executions.map(e=>{
       const c = col[e.status]||'#9ca3af';
       return `<div><span style="color:${c}">● ${e.status}</span> ${e.goal} <span style="color:#6b7280">${e.duration_ms}ms · ${e.tokens} tok · $${e.cost}</span></div>`;
     }).join('');
+    $('execTotals').textContent = 'Σ tokens: ' + d.total_tokens + ' · Σ cost: $' + d.total_cost;
   }catch(e){ console.log('exec err', e); }
 }
 async function refreshLogs(){
@@ -264,6 +276,34 @@ async function refreshLogs(){
   }catch(e){ console.log('logs err', e); }
 }
 
+// ---- runtime / executor / observer / token totals ----
+async function refreshExecutor(){
+  try{
+    const d = await (await fetch('/api/executor?session_id='+sid())).json();
+    const el = $('chip-exec');
+    el.textContent = 'exec ' + d.phase;
+    el.className = 'chip' + (d.phase==='executing' ? ' on' : '');
+  }catch(e){}
+}
+async function refreshRuntime(){
+  try{
+    const d = await (await fetch('/api/runtime')).json();
+    $('chip-rt').textContent = 'rt ' + d.uptime_s.toFixed(0) + 's · ' + d.provider;
+    $('chip-provider').textContent = 'provider ' + d.provider;
+    $('chip-model').textContent = 'model ' + d.model;
+    $('chip-ws').textContent = 'WS ● ' + d.ws_clients;
+  }catch(e){}
+}
+async function refreshObserver(){
+  try{
+    const d = await (await fetch('/api/observer?n=25')).json();
+    if(!d.observations.length){ $('observerList').innerHTML = '<div>(no observations yet)</div>'; return; }
+    $('observerList').innerHTML = d.observations.slice().reverse().map(o=>
+      `<div><span style="color:${o.ok?'#34d399':'#f87171'}">${o.ok?'✓':'✗'}</span> [${o.source}] ${o.message}</div>`
+    ).join('');
+  }catch(e){}
+}
+
 // ---- websocket: chat + live events ----
 function connectWS(){
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -276,7 +316,7 @@ function connectWS(){
       // remove typing if present
       const t = $('typing'); if(t) t.remove();
       addMsg(m.response, 'bot'); refresh();
-      refreshPlanner(); refreshExecutions(); refreshLogs();
+      refreshPlanner(); refreshExecutions(); refreshLogs(); refreshExecutor(); refreshRuntime(); refreshObserver();
       return;
     }
     // event feed
@@ -296,8 +336,8 @@ async function init(){
   $('chip-model').textContent = 'model ' + ((active||{}).model || 'mock');
   refresh();
 }
-refreshPlanner(); refreshExecutions(); refreshLogs();
-setInterval(()=>{ refreshPlanner(); refreshExecutions(); refreshLogs(); }, 5000);
+refreshPlanner(); refreshExecutions(); refreshLogs(); refreshExecutor(); refreshRuntime(); refreshObserver();
+setInterval(()=>{ refreshPlanner(); refreshExecutions(); refreshLogs(); refreshExecutor(); refreshRuntime(); refreshObserver(); }, 5000);
 connectWS();
 init();
 </script>

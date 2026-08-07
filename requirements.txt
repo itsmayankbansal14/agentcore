@@ -11,3 +11,6 @@ uvicorn[standard]>=0.29
 websockets>=12
 pypdf>=4
 numpy>=1.26
+pystray>=0.19
+pillow>=10
+watchfiles>=0.21

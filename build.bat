@@ -80,6 +80,7 @@ python -m PyInstaller ^
     --specpath build ^
     --add-data "ui;ui" ^
     --add-data "config;config" ^
+    --add-data "dashboard;dashboard" ^
     --hidden-import sqlalchemy ^
     --hidden-import structlog ^
     --hidden-import pydantic ^
@@ -89,6 +90,9 @@ python -m PyInstaller ^
     --hidden-import numpy ^
     --hidden-import pypdf ^
     --hidden-import starlette ^
+    --hidden-import pystray ^
+    --hidden-import PIL ^
+    --hidden-import watchfiles ^
     main.py
 if errorlevel 1 (
     echo [ABORT] PyInstaller failed.

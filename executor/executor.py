@@ -51,7 +51,8 @@ class StepOutcome:
 class Executor:
     def __init__(self, db: Database, llm: LLMManager, memory: MemoryManager,
                  registry: ToolRegistry, observers: ObserverManager,
-                 policy: ExecutionPolicy | None = None, devices=None) -> None:
+                 policy: ExecutionPolicy | None = None, devices=None,
+                 bus=None) -> None:
         self.db = db
         self.llm = llm
         self.memory = memory
@@ -59,6 +60,7 @@ class Executor:
         self.observers = observers
         self.policy = policy or ExecutionPolicy()
         self.devices = devices
+        self.bus = bus          # optional: publish tool/step events for the runtime API
 
     # ------------------------------------------------------------------ main entry
     async def run_step(self, session_id: str, plan, step, goal_text: str,
@@ -111,6 +113,10 @@ class Executor:
                     continue
                 self._set_step(step, StepStatus.FAILED, budget, t0, outcome, exec_id)
                 outcome.errors.append("retries exhausted after timeout")
+                if self.bus is not None:
+                    self.bus.emit(EventType.STEP_FAILED,
+                                  {"step": step.id, "errors": outcome.errors},
+                                  session_id=session_id)
                 return outcome
             except Exception as e:  # noqa: BLE001
                 outcome.errors.append(str(e))
@@ -121,6 +127,10 @@ class Executor:
                                 error=str(e)[:120])
                     continue
                 self._set_step(step, StepStatus.FAILED, budget, t0, outcome, exec_id)
+                if self.bus is not None:
+                    self.bus.emit(EventType.STEP_FAILED,
+                                  {"step": step.id, "errors": outcome.errors},
+                                  session_id=session_id)
                 return outcome
 
             # success
@@ -130,6 +140,10 @@ class Executor:
             outcome.budget = budget.summary()
             outcome.duration_ms = int((time.time() - t0) * 1000)
             self._set_step(step, StepStatus.DONE, budget, t0, outcome, exec_id)
+            if self.bus is not None:
+                self.bus.emit(EventType.STEP_COMPLETED,
+                              {"step": step.id, "plan_id": plan_id or (plan.id if plan else None)},
+                              session_id=session_id)
 
             # lifecycle: advance plan
             if plan is not None and plan_completer is not None:
@@ -197,6 +211,10 @@ class Executor:
     async def _dispatch_tool(self, session_id: str, step_id: str | None,
                              tc: ToolCall) -> ToolResult:
         t0 = time.time()
+        if self.bus is not None:
+            self.bus.emit(EventType.TOOL_STARTED,
+                          {"tool": tc.name, "args": tc.arguments},
+                          session_id=session_id)
         with self.db.session() as s:
             row = ToolExecution(session_id=session_id, plan_step_id=step_id,
                                 tool=tc.name, args=json.dumps(tc.arguments))
@@ -212,6 +230,11 @@ class Executor:
             row.result = json.dumps(result.data, default=str) if result.ok else None
             row.error = result.error
             s.commit()
+        if self.bus is not None:
+            self.bus.emit(EventType.TOOL_RESULT,
+                          {"tool": tc.name, "ok": result.ok,
+                           "error": result.error, "ms": result.duration_ms},
+                          session_id=session_id)
         return result
 
     # ------------------------------------------------------------------ history

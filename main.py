@@ -11,9 +11,12 @@ Usage:
   python main.py ingest <file|dir>    index files into the knowledge base
   python main.py search <query>       search indexed knowledge
   python main.py facts                show long-term memory facts
-  python main.py                      start the dev console (dashboard) at http://localhost:8000
+  python main.py                      DEV: start the dev console (dashboard) at http://localhost:8000
+                                      (hot reload ON; --no-reload to disable)
+  python main.py --launcher           PROD (simulate): desktop launcher — runtime + browser + tray
+  python main.py --dev / --no-reload  toggle hot reload for the dev console
   python main.py chat                 interactive REPL
-  python main.py serve [port]         start the dev console (default 8000)
+  python main.py serve [port]         start the dev console (no reload; default 8000)
   python main.py selfcheck            verify the app boots (used by build smoke test)
   python main.py version              print version
 """
@@ -122,10 +125,25 @@ def repl(app: AgentApp, session_id: str) -> None:
         print(f"\n🤖 {result}")
 
 
-def _cmd_serve(app, port: int | None = None) -> None:
+FROZEN = bool(getattr(sys, "frozen", False))
+
+
+def _cmd_serve(app, port: int | None = None, reload: bool = False) -> None:
     """Boot the dev console (thin dashboard) — primary entry point."""
     from dashboard.app import run as run_dashboard
-    run_dashboard(app, port=port)
+    run_dashboard(app, port=port, reload=reload)
+
+
+def _cmd_dev(port: int | None = None, reload: bool = True) -> None:
+    """Development console at localhost:8000 with hot reload."""
+    from dashboard.app import run as run_dashboard
+    run_dashboard(None, port=port, reload=reload)
+
+
+def _cmd_launcher(port: int = 8000) -> None:
+    """Desktop launcher (AgentCore.exe production mode / --launcher simulation)."""
+    from launcher import run_launcher
+    sys.exit(run_launcher(port=port))
 
 
 def main() -> None:
@@ -133,9 +151,19 @@ def main() -> None:
     session_id = "demo"
     app = _app()
 
+    if args and args[0] == "--launcher":
+        _cmd_launcher(port=int(args[1]) if len(args) > 1 and args[1].isdigit() else 8000)
+        return
+    if args and args[0] == "--dev":
+        _cmd_dev(port=8000, reload="--no-reload" not in args)
+        return
     if not args:
-        # PRIMARY ENTRY: `python main.py` → dev console at localhost:8000
-        _cmd_serve(app)
+        if FROZEN:
+            # packaged AgentCore.exe → desktop launcher (starts runtime + browser + tray)
+            _cmd_launcher()
+            return
+        # PRIMARY DEV ENTRY: `python main.py` → dev console at localhost:8000 (hot reload)
+        _cmd_dev(port=8000, reload="--no-reload" not in args)
         return
     if args[0] == "chat":
         repl(app, session_id)
@@ -172,7 +200,7 @@ def main() -> None:
             print("AgentCore 0.1.0")
     elif args[0] == "serve":
         port = int(args[1]) if len(args) > 1 and args[1].isdigit() else None
-        _cmd_serve(app, port)
+        _cmd_serve(app, port, reload=False)
     else:
         print(__doc__)
 

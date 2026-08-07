@@ -3,7 +3,7 @@
 Windows laptop = controller · Android phone = thin remote executor.
 LLM **only reasons**; tools act; SQLite remembers; the **task loop** is the center.
 
-> Test status: **107 checks passing** across 4 suites:
+> Test status: **120 checks passing** across 4 suites:
 > `tests/test_architecture.py` (47) · `tests/smoke.py` (37) · `tests/test_api.py` (13) ·
 > `scripts/test_live.py` (8, against real OpenRouter).
 
@@ -69,12 +69,14 @@ LLM **only reasons**; tools act; SQLite remembers; the **task loop** is the cent
 pip install -r requirements.txt   # or: uv sync
 cp .env.example .env              # add OPENROUTER_API_KEY (optional; mock works offline)
 
-python main.py                    # PRIMARY ENTRY → dev console at http://localhost:8000
-                                  # (thin dashboard: chat, planner, execution progress,
-                                  #  current task, memory, devices, tools, live logs)
-
+python main.py                    # DEV: dev console at http://localhost:8000 (hot reload)
+python main.py --no-reload        # dev console without hot reload
+python main.py --launcher [port]  # PROD simulation: desktop launcher (runtime+browser+tray)
 python main.py chat               # REPL
-python main.py serve [port]       # same dev console (default 8000)
+python main.py serve [port]       # dev console, no reload
+
+# Production (Windows): build.bat → AgentCore.exe (launcher: starts runtime,
+# opens browser, system tray, graceful shutdown)
 python main.py whoami             # providers / tools / devices
 python main.py ingest notes/      # index knowledge
 python main.py search "binary search"
@@ -104,7 +106,12 @@ business logic, no tool code, no planning. It shows:
 
 The same FastAPI app (via `api/server.py`) exposes `/ws/android` for the phone
 companion and the provider/knowledge REST endpoints; `dashboard/app.py` just
-adds the dev-console template on top.
+adds the dev-console template on top. **One runtime** — every interface
+(dev console, `AgentCore.exe` launcher, CLI, Android) goes through
+`dashboard.app.create_app()` → `AgentApp.create()`.
+
+See `docs/ARCHITECTURE.md` for the multi-interface diagram, startup sequence,
+full runtime API list and single-runtime verification.
 
 ## Build & release pipeline (hard gates)
 
