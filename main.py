@@ -11,8 +11,8 @@ Usage:
   python main.py ingest <file|dir>    index files into the knowledge base
   python main.py search <query>       search indexed knowledge
   python main.py facts                show long-term memory facts
-  python main.py                      DEV: start the dev console (dashboard) at http://localhost:8000
-                                      (hot reload ON; --no-reload to disable)
+  python main.py                      DEV: bootstrap (venv/deps/playwright/workspace/db)
+                                      then start the dev console at http://localhost:8000
   python main.py --launcher           PROD (simulate): desktop launcher — runtime + browser + tray
   python main.py --dev / --no-reload  toggle hot reload for the dev console
   python main.py chat                 interactive REPL
@@ -148,6 +148,18 @@ def _cmd_launcher(port: int = 8000) -> None:
 
 def main() -> None:
     args = sys.argv[1:]
+
+    # SELF-BOOTSTRAP: validate + initialize everything before starting
+    # (venv, deps, playwright, workspace, database, doctor). Never blocks
+    # on optional components (android/browser). --skip-boot for fast dev.
+    if "--skip-boot" not in args:
+        import bootstrap
+        report = bootstrap.run()
+        print(bootstrap.render_report(report))
+        # hard stop only if Python is unsupported
+        if not report.get("python", {}).get("ok"):
+            sys.exit(1)
+
     session_id = "demo"
     app = _app()
 

@@ -36,11 +36,18 @@ class WorkspaceManager:
         self.adb = self.data / "adb"
         self.db_file = self.data / "agentcore.db"
         self.tts_cache = self.data / "tts_cache"
+        # bootstrap-required locations (self-bootstrapping phase)
+        self.workspace = self.root          # the workspace root itself
+        self.memory = self.data / "memory"
+        self.database = self.data / "database"
+        self.cache = self.data / "cache"
+        self.temp = self.tmp                # alias
         self._ensure_all()
 
     def _ensure_all(self) -> None:
         for d in (self.data, self.logs, self.tmp, self.exports, self.sandbox,
-                  self.screenshots, self.adb, self.tts_cache):
+                  self.screenshots, self.adb, self.tts_cache, self.memory,
+                  self.database, self.cache):
             d.mkdir(parents=True, exist_ok=True)
 
     # -- public path API -----------------------------------------------------
@@ -71,4 +78,5 @@ class WorkspaceManager:
     def to_dict(self) -> dict[str, str]:
         return {name: str(getattr(self, name)) for name in
                 ("root", "data", "logs", "tmp", "exports", "sandbox",
-                 "screenshots", "adb", "db_file", "tts_cache")}
+                 "screenshots", "adb", "db_file", "tts_cache",
+                 "memory", "database", "cache")}

@@ -204,6 +204,7 @@ def check_integration(report: Report) -> None:
         "capabilities": "test_capabilities.py",   # Windows/Browser/Filesystem/Android workflows
         "self_healing": "test_self_healing.py",   # recovery policy, storage init, tool health
         "target_resolution": "test_target_resolution.py",
+        "bootstrap": "test_bootstrap.py",
     }
     missing = []
     for area, fname in required.items():

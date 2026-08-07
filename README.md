@@ -3,9 +3,9 @@
 Windows laptop = controller · Android phone = thin remote executor.
 LLM **only reasons**; tools act; SQLite remembers; the **task loop** is the center.
 
-> Test status: **239 checks passing** (47 arch + 37 core + 34 api + 12 android +
-> 19 vertical-slice + 37 reliability + **45 pytest integration** incl. capability
-> workflows, self-healing and target resolution) · coverage ~60%. across 4 suites:
+> Test status: **247 checks passing** (47 arch + 37 core + 34 api + 12 android +
+> 19 vertical-slice + 37 reliability + **53 pytest integration** incl. capability
+> workflows, self-healing, target resolution and bootstrap) · coverage ~60%. across 4 suites:
 > `tests/test_architecture.py` (47) · `tests/smoke.py` (37) · `tests/test_api.py` (13) ·
 > `scripts/test_live.py` (8, against real OpenRouter).
 
@@ -324,6 +324,37 @@ User Goal → Intent Analysis → TargetResolver → Planner → Executor → Ob
 python -m pytest tests/integration/test_target_resolution.py -m integration -v
 # "set reminder" -> windows · "on my phone" -> android (fallback if offline)
 # "open youtube" -> browser on windows · "on my phone" -> android
+```
+
+## Self-bootstrapping (one command)
+
+`python main.py` (or `AgentCore.exe`) bootstraps everything automatically —
+no manual `.venv`, `pip install`, folder creation, DB init, or Playwright install:
+
+```
+bootstrap.run():  python version → venv (create + re-exec if needed) →
+                  deps (hash-locked requirements + missing-pkg install) →
+                  playwright chromium (once, marker-gated) →
+                  workspace dirs (logs/memory/database/cache/exports/temp) →
+                  database (create/migrate/WAL/integrity) → doctor readiness report
+```
+
+- **Doctor mode** prints a readiness report each start: python, venv, deps,
+  playwright, workspace, database, api config, tool registry, browser tool,
+  android tool, network, disk.
+- **Optional components never block**: android with no device → UNAVAILABLE;
+  playwright missing → BROKEN (with install hint) — startup continues.
+- **Hash-lock**: requirements.txt sha256 in `data/.bootstrap/requirements.sha256`;
+  only changed requirements trigger a reinstall; individually-missing packages
+  are installed on demand.
+- **Windows**: `run.bat` / `run.ps1` locate Python and launch `main.py` (which
+  bootstraps). Only manual prerequisites: installing Python itself and
+  enabling Android USB debugging.
+- `--skip-boot` bypasses bootstrap for fast dev iterations.
+
+```bash
+python main.py            # bootstrap + dev console at :8000
+python -m pytest tests/integration/test_bootstrap.py -m integration -v
 ```
 
 ## Architecture decisions (why)
