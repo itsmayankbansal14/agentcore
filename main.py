@@ -25,10 +25,12 @@ from __future__ import annotations
 import asyncio
 import sys
 
-from core.app import AgentApp
-
 
 def _app():
+    # LAZY import — core.app needs third-party deps, which bootstrap installs
+    # first. Importing at module level would crash on a clean machine before
+    # bootstrap runs.
+    from core.app import AgentApp
     return AgentApp.create()
 
 
@@ -155,7 +157,7 @@ def main() -> None:
     if "--skip-boot" not in args:
         import bootstrap
         report = bootstrap.run()
-        print(bootstrap.render_report(report))
+        print(bootstrap.render_report(report), flush=True)   # always visible
         # hard stop only if Python is unsupported
         if not report.get("python", {}).get("ok"):
             sys.exit(1)

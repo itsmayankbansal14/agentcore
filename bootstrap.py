@@ -161,13 +161,15 @@ def ensure_venv() -> dict:
     if not venv_py.exists():
         return {"name": "venv", "ok": False, "detail": ".venv python missing"}
 
-    # re-exec inside the venv (this installs deps + continues bootstrap)
+    # re-exec into main.py inside the venv — main.py re-runs bootstrap
+    # (with AGENTCORE_IN_VENV=1 it skips venv creation and proceeds to deps,
+    # playwright, workspace, db, then launches the dashboard).
     env = dict(os.environ)
     env["AGENTCORE_IN_VENV"] = "1"
     try:
-        r = subprocess.run([str(venv_py), str(Path(__file__).resolve()), "--boot"]
+        r = subprocess.run([str(venv_py), str(ROOT / "main.py")]
                            + sys.argv[1:], cwd=ROOT, env=env)
-        sys.exit(r.returncode)   # never returns
+        sys.exit(r.returncode)   # never returns (parent exits with child's code)
     except Exception as e:  # noqa: BLE001
         return {"name": "venv", "ok": False, "detail": f"re-exec failed: {e}"}
     return {"name": "venv", "ok": True, "detail": "bootstrapped"}
