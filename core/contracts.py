@@ -36,9 +36,12 @@ class ToolCall:
 
 @dataclass
 class LLMMessage:
-    """One message in the normalized conversation. Never provider-specific."""
+    """One message in the normalized conversation. Never provider-specific.
+    `content` may be a plain string OR a list of OpenAI-style content parts
+    (e.g. [{"type":"text","text":...},{"type":"image_url","image_url":{"url": data_uri}}])
+    so providers can do real vision."""
     role: Role
-    content: str | None = None
+    content: str | list | None = None
     tool_calls: list[ToolCall] | None = None   # assistant-only
     tool_call_id: str | None = None            # tool-result-only
 

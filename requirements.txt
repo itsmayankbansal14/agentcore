@@ -14,3 +14,5 @@ numpy>=1.26
 pystray>=0.19
 pillow>=10
 watchfiles>=0.21
+adb-shell>=0.4.4
+rapidocr-onnxruntime>=1.3

@@ -61,13 +61,14 @@ class ObserverManager:
         return out
 
 
-def default_observers(sandbox_root: str | None = None, android_device=None) -> ObserverManager:
+def default_observers(sandbox_root: str | None = None, android_device=None,
+                      adb_device=None, verifier=None) -> ObserverManager:
     mgr = ObserverManager()
     mgr.register(FilesystemObserver(sandbox_root))
     mgr.register(TimeObserver())
     mgr.register(NetworkObserver())
     mgr.register(ClipboardObserver())
     mgr.register(SystemObserver())
-    mgr.register(AndroidObserver(android_device))
-    mgr.register(ScreenObserver())
+    mgr.register(AndroidObserver(android_device or adb_device))
+    mgr.register(ScreenObserver(adb_device, verifier))
     return mgr

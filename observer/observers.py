@@ -160,8 +160,53 @@ class AndroidObserver(Observer):
 
 
 class ScreenObserver(Observer):
-    """Screen capture verification — enabled with the Android companion (Phase 5)."""
+    """Screen capture + vision verification (REAL).
+    After a UI-changing android command, captures a screenshot via the ADB
+    device (real `screencap -p`) and runs the VisionVerifier (LLM vision /
+    OCR / pixel-diff) to confirm the target actually opened."""
+
     source = "screen"
 
+    def __init__(self, device=None, verifier=None) -> None:
+        self._device = device       # ADBDevice
+        self._verifier = verifier   # VisionVerifier
+
     def verify(self, tool_name, args, result) -> list[Observation]:
+        if not (tool_name.startswith("android_") and tool_name != "android_screenshot"):
+            return []
+        dev = self._device
+        if dev is None or not dev.health().get("online"):
+            return [Observation(source=self.source, ok=False,
+                                data={"cmd": tool_name, "reason": "adb device offline"},
+                                message="screen verification skipped — adb device offline")]
+        # capture a REAL screenshot
+        try:
+            import asyncio
+            shot = asyncio.run(dev.execute("device.android.screenshot", {}))
+            if not shot.ok or not shot.data.get("file"):
+                return [Observation(source=self.source, ok=False,
+                                    data={"cmd": tool_name, "reason": shot.error},
+                                    message="screenshot capture failed")]
+            path = shot.data["file"]
+        except Exception as e:  # noqa: BLE001
+            return [Observation(source=self.source, ok=False,
+                                data={"cmd": tool_name, "reason": str(e)},
+                                message="screenshot capture raised")]
+        # verify against the expected target
+        if self._verifier is None:
+            return [Observation(source=self.source, ok=True,
+                                data={"cmd": tool_name, "file": path},
+                                message=f"screenshot captured: {path}")]
+        import asyncio as _a
+        target = "youtube" if tool_name == "android_open_youtube" else tool_name
+        ver = _a.run(self._verifier.verify(target, path))
+        log = None
+        return [Observation(
+            source=self.source, ok=ver.ok,
+            data={"cmd": tool_name, "file": path, "engine": ver.engine,
+                  "reason": ver.reason, "screenshot": path},
+            message=(f"✓ verified ({ver.engine}): {ver.reason}"
+                     if ver.ok else f"✗ verification failed ({ver.engine}): {ver.reason}"))]
+
+    def poll(self) -> list[Observation]:
         return []

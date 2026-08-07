@@ -376,6 +376,27 @@ def create_app(agent: AgentApp | None = None, template: Path | None = None) -> F
             "log_dir": str(agent_app.config.log_dir),
         }
 
+    @app.get("/api/screenshots")
+    async def screenshots(limit: int = 10) -> dict:
+        """List captured device screenshots (vertical slice verification)."""
+        shots_dir = agent_app.config.data_dir / "screenshots"
+        if not shots_dir.exists():
+            return {"screenshots": []}
+        files = sorted(shots_dir.glob("*.png"), key=lambda p: p.stat().st_mtime,
+                       reverse=True)[:min(limit, 50)]
+        return {"screenshots": [{"name": p.name, "url": f"/api/screenshots/{p.name}",
+                                 "size": p.stat().st_size,
+                                 "ts": p.stat().st_mtime} for p in files]}
+
+    @app.get("/api/screenshots/{name}")
+    async def screenshot_file(name: str):
+        from fastapi.responses import FileResponse
+        shots_dir = agent_app.config.data_dir / "screenshots"
+        p = shots_dir / name
+        if not p.exists() or p.suffix.lower() != ".png":
+            return {"error": "not found"}, 404
+        return FileResponse(p, media_type="image/png")
+
     @app.get("/api/logs")
     async def logs(lines: int = 30) -> dict:
         """Tail of the structured JSONL log (dashboard Logs panel)."""

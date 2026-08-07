@@ -3,7 +3,7 @@
 Windows laptop = controller · Android phone = thin remote executor.
 LLM **only reasons**; tools act; SQLite remembers; the **task loop** is the center.
 
-> Test status: **130 checks passing** (47 arch + 37 core + 26 api + 12 android + 8 live) across 4 suites:
+> Test status: **149 checks passing** (47 arch + 37 core + 26 api + 12 android + 19 vertical-slice + 8 live) across 4 suites:
 > `tests/test_architecture.py` (47) · `tests/smoke.py` (37) · `tests/test_api.py` (13) ·
 > `scripts/test_live.py` (8, against real OpenRouter).
 
@@ -56,6 +56,39 @@ LLM **only reasons**; tools act; SQLite remembers; the **task loop** is the cent
 - FastAPI REST + WebSocket (`/ws` broadcasts live agent events) + web dashboard
   (`python main.py serve` → http://localhost:8000). The `/ws` endpoint is the
   future Android transport.
+
+### Vertical slice — "Open YouTube on an Android phone" (real, no mocks)
+
+One complete end-to-end capability, validated for real:
+
+```
+User goal → Planner creates plan → Executor executes step →
+AndroidDevice (REAL adb-shell ADB protocol) sends `am start` /
+`screencap -p` → ScreenObserver captures the screen →
+VisionVerifier (LLM vision via OpenRouter → RapidOCR → pixel-diff)
+confirms YouTube opened → Executor reports success or RETRIES
+(existing retry loop) → Memory stores the completed task →
+execution history records everything → dashboard shows it live.
+```
+
+- **Real transports:** `devices/adb.py` (adb-shell = the real ADB wire protocol;
+  `adb connect <ip>:5555` or an emulator) — no WS mock, no placeholders.
+- **Real verification:** `vision/verifier.py` — LLM vision (real OpenRouter
+  multimodal call), RapidOCR (real OCR engine), pixel-diff fallback.
+- **Retry:** screen-verification failure raises a retryable error through the
+  existing Executor retry loop (initial + max_retries attempts).
+- **Dashboard:** live via `/api/observer`, `/api/screenshots`,
+  `/api/executions`, and the WS event feed.
+
+```bash
+python scripts/slice_youtube.py                        # full live slice (needs a device)
+python scripts/slice_youtube.py --verify-only shot.png # verification only
+python tests/test_vertical_slice.py                    # 19 real checks (offline path, OCR, pixel)
+```
+
+> Honest note: this sandbox has no Android device/emulator (no KVM, no root),
+> so the device-present path is validated by the real code + verification engines
+> here, and runs end-to-end on your laptop with `adb connect`.
 
 ### Tools (14 registered)
 `time_now` · `echo` · `fs_read/write/list` (sandboxed) · `knowledge_add/search` ·

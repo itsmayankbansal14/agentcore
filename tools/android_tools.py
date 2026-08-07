@@ -22,13 +22,21 @@ class _AndroidTool(Tool):
     async def execute(self, params: dict[str, Any], ctx: dict[str, Any]) -> ToolResult:
         # multi-device: optional device_id (default "android" — the primary phone)
         device_id = params.pop("device_id", "android") if isinstance(params, dict) else "android"
-        dev = self.devices.get(device_id)
-        if dev is None:
-            return ToolResult(ok=False, error=f"device not registered: {device_id}")
-        if not dev.health().get("online"):
-            return ToolResult(ok=False, error=f"{device_id} offline",
-                              data={"blocked": True})
-        return await dev.execute(self.cmd_name, params)
+        # vertical slice: if the WS companion is offline, fall back to the real ADB transport
+        candidates = [device_id]
+        if device_id == "android":
+            candidates.append("adb")
+        for did in candidates:
+            dev = self.devices.get(did)
+            if dev is None:
+                continue
+            if not dev.health().get("online"):
+                continue
+            return await dev.execute(self.cmd_name, params)
+        dev = self.devices.get(candidates[0])
+        state = "offline" if dev is None or not dev.health().get("online") else "unknown"
+        return ToolResult(ok=False, error=f"no android device online (tried {candidates})",
+                          data={"blocked": True, "state": state})
 
 
 # -- concrete tools (each maps a capability) --------------------------------

@@ -205,6 +205,25 @@ class Executor:
                         role=Role.SYSTEM,
                         content="Verification observations:\n" + "\n".join(observations[-3:])))
 
+                # VERTICAL SLICE: real screen verification gate.
+                # If the observer/vision verifier says the target did NOT open,
+                # raise a retryable failure so the Executor's retry loop kicks in
+                # (existing attempts/max_retries machinery — no new loop).
+                failed_verif = [o for o in observations if "✗ verification failed" in o]
+                if failed_verif and tc.name == "android_open_youtube":
+                    self.memory.store_message(
+                        session_id,
+                        LLMMessage(role=Role.SYSTEM,
+                                   content="VERIFICATION FAILED — the screen does not show YouTube. Retrying the open command."))
+                    raise RuntimeError("screen verification failed: " + failed_verif[-1])
+
+                # memory: record the completed device action as a long-term fact
+                if tc.name == "android_open_youtube" and not failed_verif:
+                    from datetime import datetime
+                    self.memory.remember(session_id, "fact", "device.adb.last_action",
+                                         f"opened youtube at {datetime.now().isoformat(timespec='seconds')}",
+                                         source="verification")
+
         raise RuntimeError(f"iteration cap reached ({self.policy.max_steps})")
 
     # ------------------------------------------------------------------ tool dispatch

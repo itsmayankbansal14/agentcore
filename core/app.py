@@ -21,6 +21,7 @@ from core.logging import bind_audit, setup_logging
 from core.permissions import PermissionManager
 from core.plugins import PluginManager
 from database.connection import Database
+from devices.adb import ADBDevice
 from devices.android import AndroidDevice
 from devices.base import DeviceManager
 from devices.windows import WindowsDevice
@@ -101,10 +102,20 @@ class AgentApp:
         devices.register(win)
         android = AndroidDevice(fingerprint="unpaired", db=db)
         devices.register(android)
+        # REAL ADB transport (vertical slice): adb-shell over TCP (adb connect host:5555)
+        adb_host = config.get_str("devices.adb_host", "127.0.0.1")
+        adb_port = config.get_int("devices.adb_port", 5555)
+        adb = ADBDevice(host=adb_host, port=adb_port)
+        devices.register(adb)
         register_android_tools(registry, devices)
 
+        # vision verifier (LLM vision -> OCR -> pixel diff), real engines
+        from vision.verifier import VisionVerifier
+        verifier = VisionVerifier(llm=llm, ocr=True)
+
         # observers (environmental verification) — android observer wired to the device
-        observers = default_observers(str(sandbox), android_device=android)
+        observers = default_observers(str(sandbox), android_device=android,
+                                      adb_device=adb, verifier=verifier)
 
         # reasoner for planning
         reasoner = reasoner or build_reasoner(config, llm)
