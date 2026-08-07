@@ -4,11 +4,15 @@ every tool execution so the planner sees observations, not just tool outputs.
 """
 from __future__ import annotations
 
+import structlog
+
 from observer.base import Observation, Observer
 from observer.observers import (AndroidObserver, ClipboardObserver,
                                 FilesystemObserver, NetworkObserver,
                                 ScreenObserver, SystemObserver, TimeObserver)
 from observer.workflow_observers import register_workflow_observers
+
+log = structlog.get_logger("agentcore.observer")
 
 
 class ObserverManager:
@@ -31,8 +35,11 @@ class ObserverManager:
 
     def _record(self, obs: list[Observation]) -> None:
         for o in obs:
+            # internal detail stays in the structured log (developer view)
+            log.debug("observation", detail=o.log_developer())
+            # the history/API keeps the public message; data stays internal
             self.history.append({"source": o.source, "ok": o.ok,
-                                 "message": o.message, "data": o.data, "ts": o.ts})
+                                 "message": o.message, "ts": o.ts})
         if len(self.history) > 200:
             self.history = self.history[-200:]
 

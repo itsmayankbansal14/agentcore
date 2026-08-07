@@ -202,6 +202,7 @@ def check_integration(report: Report) -> None:
         "permission": "test_permissions.py",
         "provider": "test_provider_switching.py",
         "capabilities": "test_capabilities.py",   # Windows/Browser/Filesystem/Android workflows
+        "self_healing": "test_self_healing.py",   # recovery policy, storage init, tool health
     }
     missing = []
     for area, fname in required.items():

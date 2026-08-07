@@ -3,9 +3,10 @@
 Windows laptop = controller · Android phone = thin remote executor.
 LLM **only reasons**; tools act; SQLite remembers; the **task loop** is the center.
 
-> Test status: **223 checks passing** (47 arch + 37 core + 34 api + 12 android +
-> 19 vertical-slice + 37 reliability + **29 pytest integration incl. 4 real
-> capability workflows**) · coverage 58.5% on the integration suite alone. across 4 suites:
+> Test status: **230 checks passing** (47 arch + 37 core + 34 api + 12 android +
+> 19 vertical-slice + 37 reliability + **36 pytest integration** incl. 4 real
+> capability workflows + 7 self-healing) · coverage 59.8% on the integration
+> suite alone. across 4 suites:
 > `tests/test_architecture.py` (47) · `tests/smoke.py` (37) · `tests/test_api.py` (13) ·
 > `scripts/test_live.py` (8, against real OpenRouter).
 
@@ -270,6 +271,38 @@ python -m pytest tests/integration/test_capabilities.py -m integration -v
 
 The dashboard shows each workflow live: goal, plan, current step, running
 tool, observer verification, retries, timeline, final result.
+
+## Self-healing execution
+
+The runtime repairs itself instead of just failing:
+
+```
+Tool → RecoveryPolicy.is_recoverable → Repair (init storage / reconnect device /
+       wait cooldown) → Retry → Observer Verification
+```
+
+- **Failure classification**: every failure is `recoverable` or `non-recoverable`
+  (`core/errors.py`). Device offline / network / rate-limit → recoverable;
+  bad API key / permission / invalid args → not.
+- **RecoveryPolicy** (`executor/recovery.py`): repairs + retries recoverable
+  failures (max attempts), records per-tool recovery attempts/success.
+- **WorkspaceManager** (`core/workspace.py`): the SINGLE path authority — data,
+  logs, db, tmp, exports, sandbox, screenshots, adb. No tool/observer/planner
+  constructs absolute paths.
+- **TodoStorage** (`tools/storage/todo_storage.py`): capability interface —
+  missing storage is auto-initialized, then the operation retries (filesystem
+  is an implementation detail; the Planner reasons about capabilities).
+- **Tool health** (`tools/health.py`): READY / BROKEN / UNAVAILABLE / BUSY.
+  Missing dependencies (e.g. Playwright) are detected at startup → BROKEN with
+  install instructions — never READY, never executed.
+- **Observer separation**: user-visible messages vs developer logs — internal
+  detail (paths, timings, hashes) stays in the structured log, not the UI.
+
+```bash
+python -m pytest tests/integration/test_self_healing.py -m integration -v
+# dashboard: Tool monitor shows health + recovery attempts/success;
+# /api/tools/health lists BROKEN tools with install hints
+```
 
 ## Architecture decisions (why)
 

@@ -136,8 +136,9 @@ table.tools td{padding:4px 6px;border-bottom:1px solid #14142a;font-family:monos
     <div class="panel">
       <h3>🧰 Tool monitor <span style="color:#6b7280;font-size:9px;text-transform:none">live state · last used · exec time · success rate</span></h3>
       <div style="padding:8px 10px;max-height:240px;overflow:auto">
-        <table class="tools"><thead><tr><th>tool</th><th>state</th><th>runs</th><th>last ms</th><th>avg ms</th><th>ok%</th><th>last error</th></tr></thead>
-        <tbody id="toolLive"><tr><td colspan="6" style="color:#6b7280">loading…</td></tr></tbody></table>
+        <div id="brokenBanner" style="display:none;padding:6px 10px;background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);color:#fca5a5;font-size:10px;margin:6px"></div>
+        <table class="tools"><thead><tr><th>tool</th><th>health</th><th>state</th><th>runs</th><th>last ms</th><th>avg ms</th><th>ok%</th><th>recov</th><th>ok rec</th></tr></thead>
+        <tbody id="toolLive"><tr><td colspan="9" style="color:#6b7280">loading…</td></tr></tbody></table>
       </div>
     </div>
 
@@ -265,13 +266,31 @@ async function refreshLiveExec(){
 // ---------- TOOL MONITOR ----------
 async function refreshToolLive(){
   try{
-    const d = await (await fetch('/api/tools/live')).json();
-    const rows = d.tools.map(t=>{
-      const state = t.state==='busy' ? '<span class="toolbar busy">BUSY</span>' : '<span class="toolbar ready">ready</span>';
-      const err = t.last_error ? `<span style="color:#f87171" title="${t.last_error}">⚠ ${(t.last_error||'').slice(0,24)}</span>` : '—';
-      return `<tr><td>${t.tool}</td><td>${state}</td><td>${t.runs}</td><td>${t.last_ms||0}</td><td>${t.avg_ms||0}</td><td>${t.success_rate}%</td><td>${err}</td></tr>`;
+    const [live, health] = await Promise.all([
+      fetch('/api/tools/live').then(r=>r.json()),
+      fetch('/api/tools/health').then(r=>r.json())]);
+    const mon = {}; (live.tools||[]).forEach(t=>mon[t.tool]=t);
+    const hs = health.tools||{};
+    const healthBadge = st => st==='READY' ? '<span class="toolbar ready">READY</span>'
+      : st==='BUSY' ? '<span class="toolbar busy">BUSY</span>'
+      : st==='BROKEN' ? '<span class="toolbar" style="background:rgba(248,113,113,.15);color:#f87171;border:1px solid rgba(248,113,113,.4)">BROKEN</span>'
+      : '<span class="toolbar" style="background:rgba(251,191,36,.12);color:#fbbf24;border:1px solid rgba(251,191,36,.35)">UNAVAILABLE</span>';
+    const rows = Object.entries(hs).map(([tool, h])=>{
+      const m = mon[tool]||{};
+      const state = m.state==='busy' ? '<span class="toolbar busy">BUSY</span>' : '—';
+      const rec = (m.recovery_attempts||0) ? `${m.recovery_attempts}/${m.recovery_success||0}` : '—';
+      const hint = h.install_hint ? ` title="${h.install_hint}"` : '';
+      return `<tr title="${(h.message||'').replace(/"/g,'&quot;')}"${hint}><td>${tool}</td><td>${healthBadge(h.state)}</td><td>${state}</td><td>${m.runs||0}</td><td>${m.last_ms||0}</td><td>${m.avg_ms||0}</td><td>${m.success_rate!=null?m.success_rate+'%':'—'}</td><td>${rec}</td></tr>`;
     }).join('');
-    $('toolLive').innerHTML = rows || '<tr><td colspan="6" style="color:#6b7280">(no tool executions yet)</td></tr>';
+    $('toolLive').innerHTML = rows || '<tr><td colspan="9" style="color:#6b7280">(no tools)</td></tr>';
+    // BROKEN banner with install instructions
+    if(health.broken && health.broken.length){
+      const hints = health.broken.map(b=>{
+        const h = hs[b]; return `<b>${b}</b>: ${h.message} — <code>${h.install_hint||''}</code>`;
+      }).join('<br>');
+      $('brokenBanner').style.display='block';
+      $('brokenBanner').innerHTML = '⚠️ <b>BROKEN tools detected</b> (dependency missing — not READY):<br>' + hints;
+    } else { $('brokenBanner').style.display='none'; }
   }catch(e){}
 }
 
@@ -290,6 +309,8 @@ function timelineEntry(ev){
     case 'step_completed': label='step done'; cls='ok'; detail=ev.title+' ('+ev.elapsed_s+'s)'; break;
     case 'step_failed': label='step failed'; cls='err'; detail=ev.title+' ('+ev.elapsed_s+'s)' + (ev.failure_class? ' · '+ev.failure_class : '') + ((ev.recovery_suggestions||[]).length? ' · suggest: '+(ev.recovery_suggestions||[])[0].slice(0,50) : ''); break;
     case 'provider_switched': label='provider'; detail=ev.provider+' · '+ev.model; break;
+    case 'recovery_attempt': label='recovery'; cls='err'; detail=ev.tool+' attempt '+ev.attempt+' → '+ev.action+' ['+ev.failure_class+']'; break;
+    case 'recovery_failed': label='recovery fail'; cls='err'; detail=ev.tool+' attempts='+ev.attempts+' ['+ev.failure_class+']'; break;
     case 'session_resumed': label='resumed'; detail='plan '+ev.plan; break;
     default: label=ev.type; detail=JSON.stringify(ev).slice(0,80);
   }

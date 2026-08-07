@@ -57,7 +57,8 @@ class Executor:
     def __init__(self, db: Database, llm: LLMManager, memory: MemoryManager,
                  registry: ToolRegistry, observers: ObserverManager,
                  policy: ExecutionPolicy | None = None, devices=None,
-                 bus=None, monitor: ToolMonitor | None = None) -> None:
+                 bus=None, monitor: ToolMonitor | None = None,
+                 recovery=None, workspace=None, services=None) -> None:
         self.db = db
         self.llm = llm
         self.memory = memory
@@ -67,6 +68,10 @@ class Executor:
         self.devices = devices
         self.bus = bus          # optional: publish tool/step events for the runtime API
         self.monitor = monitor or ToolMonitor()
+        from executor.recovery import RecoveryPolicy
+        self.recovery = recovery or RecoveryPolicy()
+        self.workspace = workspace
+        self.services = services or {}
 
     # ------------------------------------------------------------------ main entry
     async def run_step(self, session_id: str, plan, step, goal_text: str,
@@ -272,10 +277,12 @@ class Executor:
             s.add(row)
             s.commit()
             exec_id = row.id
-        # tool-level timeout/retry/cancellation handled inside guarded_execute
-        result = await self.registry.execute(tc.name, tc.arguments, ctx={
-            "session_id": session_id, "confirm": True, "devices": self.devices})
-
+        # tool-level timeout/retry/cancellation handled inside guarded_execute;
+        # SELF-HEALING: recoverable failures go through RecoveryPolicy
+        # (repair -> retry -> observer verification) up to the policy's cap.
+        tool_ctx = {"session_id": session_id, "confirm": True,
+                    "devices": self.devices, "workspace": self.workspace}
+        result = await self._execute_with_recovery(tc, tool_ctx, session_id)
         # failure classification + recovery suggestions (requirements 4 & 5)
         failure_info = None
         if not result.ok:
@@ -332,6 +339,56 @@ class Executor:
             log.info("tool ok", tool=tc.name, ms=result.duration_ms,
                      attempts=result.attempts, session=session_id)
         return result
+
+    async def _execute_with_recovery(self, tc: ToolCall, tool_ctx: dict,
+                                    session_id: str):
+        """Run a tool; on a RECOVERABLE failure: repair -> retry -> observe,
+        up to RecoveryPolicy.max_attempts. Records recovery stats per tool."""
+        from core.errors import classify as _classify, suggestions_for as _sugg
+        attempts = 0
+        while True:
+            result = await self.registry.execute(tc.name, tc.arguments, ctx=tool_ctx)
+            if result.ok:
+                if attempts:
+                    self.recovery.record_success(tc.name)
+                    self.monitor.record_recovery(tc.name, True)
+                return result
+            info = _classify(result.error or "", component="tool", tool=tc.name)
+            info.suggestions = _sugg(info)
+            if not self.recovery.is_recoverable(info):
+                return result   # non-recoverable — no repair/retry
+            attempts += 1
+            if not self.recovery.should_retry(tc.name, attempts):
+                if self.bus is not None:
+                    self.bus.emit(EventType.RECOVERY_FAILED,
+                                  {"tool": tc.name, "attempts": attempts,
+                                   "failure_class": info.kind.value},
+                                  session_id=session_id)
+                return result
+            repair = await self.recovery.repair(info, tc.name, self.services)
+            if not repair.ok:
+                if self.bus is not None:
+                    self.bus.emit(EventType.RECOVERY_FAILED,
+                                  {"tool": tc.name, "attempts": attempts,
+                                   "repair_failed": repair.detail,
+                                   "failure_class": info.kind.value},
+                                  session_id=session_id)
+                return result
+            log.warning("recovery attempt",
+                        tool=tc.name, attempt=attempts,
+                        action=repair.action, failure=info.kind.value,
+                        session=session_id)
+            self.monitor.record_recovery(tc.name, False)
+            if repair.wait_s:
+                import asyncio as _a
+                await _a.sleep(repair.wait_s)
+            if self.bus is not None:
+                self.bus.emit(EventType.RECOVERY_ATTEMPT,
+                              {"tool": tc.name, "attempt": attempts,
+                               "action": repair.action,
+                               "failure_class": info.kind.value,
+                               "detail": repair.detail},
+                              session_id=session_id)
 
     # ------------------------------------------------------------------ history
     def _record_step_failure(self, session_id, exec_id, outcome, step, attempts, t0) -> None:

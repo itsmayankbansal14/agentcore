@@ -24,15 +24,14 @@ class TodoAddTool(Tool):
     capability = "life.todos"
     idempotent = False
 
-    def __init__(self, db: Database) -> None:
-        self.db = db
+    def __init__(self, storage_provider) -> None:
+        self.provider = storage_provider  # TodoStorageProvider (self-healing)
 
     async def execute(self, params: dict[str, Any], ctx: dict[str, Any]) -> ToolResult:
-        with self.db.session() as s:
-            t = Todo(task=params["task"], priority=params.get("priority", "medium"))
-            s.add(t)
-            s.commit()
-            return ToolResult(ok=True, data={"id": t.id, "task": t.task, "priority": t.priority})
+        storage = self.provider.storage()  # auto-initializes if missing
+        tid = storage.add(params["task"], params.get("priority", "medium"))
+        return ToolResult(ok=True, data={"id": tid, "task": params["task"],
+                                         "priority": params.get("priority", "medium")})
 
 
 class TodoListTool(Tool):
@@ -44,19 +43,14 @@ class TodoListTool(Tool):
     capability = "life.todos"
     idempotent = True
 
-    def __init__(self, db: Database) -> None:
-        self.db = db
+    def __init__(self, storage_provider) -> None:
+        self.provider = storage_provider
 
     async def execute(self, params: dict[str, Any], ctx: dict[str, Any]) -> ToolResult:
         pending_only = params.get("pending_only", True)
-        with self.db.session() as s:
-            q = s.query(Todo)
-            if pending_only:
-                q = q.filter(Todo.done.is_(False))
-            rows = q.order_by(Todo.id).all()
-            return ToolResult(ok=True, data={
-                "todos": [{"id": r.id, "task": r.task, "priority": r.priority,
-                           "done": r.done} for r in rows], "count": len(rows)})
+        storage = self.provider.storage()
+        rows = storage.list(pending_only=pending_only)
+        return ToolResult(ok=True, data={"todos": rows, "count": len(rows)})
 
 
 class TodoDoneTool(Tool):
@@ -67,17 +61,15 @@ class TodoDoneTool(Tool):
     capability = "life.todos"
     idempotent = False
 
-    def __init__(self, db: Database) -> None:
-        self.db = db
+    def __init__(self, storage_provider) -> None:
+        self.provider = storage_provider
 
     async def execute(self, params: dict[str, Any], ctx: dict[str, Any]) -> ToolResult:
-        with self.db.session() as s:
-            t = s.get(Todo, int(params["id"]))
-            if t is None:
-                return ToolResult(ok=False, error=f"no todo #{params['id']}")
-            t.done = True
-            s.commit()
-            return ToolResult(ok=True, data={"id": t.id, "task": t.task})
+        storage = self.provider.storage()
+        done = storage.mark_done(int(params["id"]))
+        if done is None:
+            return ToolResult(ok=False, error=f"no todo #{params['id']}")
+        return ToolResult(ok=True, data={"id": done["id"], "task": done["task"]})
 
 
 class HabitCheckTool(Tool):
@@ -179,8 +171,9 @@ class ExpenseSummaryTool(Tool):
                                              "by_category": by_cat, "count": len(rows)})
 
 
-def register_all(registry, db: Database) -> None:
-    for tool in (TodoAddTool(db), TodoListTool(db), TodoDoneTool(db),
+def register_all(registry, db: Database, todo_provider=None) -> None:
+    for tool in (TodoAddTool(todo_provider), TodoListTool(todo_provider),
+                 TodoDoneTool(todo_provider),
                  HabitAddTool(db), HabitCheckTool(db),
                  ExpenseAddTool(db), ExpenseSummaryTool(db)):
         registry.register(tool)

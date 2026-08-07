@@ -20,6 +20,9 @@ from core.bus import EventBus
 from core.logging import bind_audit, setup_logging
 from core.permissions import PermissionManager
 from core.plugins import PluginManager
+from core.workspace import WorkspaceManager
+from executor.recovery import RecoveryPolicy
+from tools.health import ToolHealthManager
 from database.connection import Database
 from devices.adb import ADBDevice
 from devices.android import AndroidDevice
@@ -42,6 +45,7 @@ from tools.workflows import windows_workflow as wf_windows
 from tools.workflows import android_workflow as wf_android
 from tools.local import knowledge as knowledge_tools
 from tools.local import life as life_tools
+from tools.storage.todo_storage import SQLiteTodoStorage, TodoStorageProvider
 from tools.android_tools import register_all as register_android_tools
 from tools.registry import ToolRegistry
 
@@ -78,10 +82,14 @@ class AgentApp:
     def create(cls, root: Path | None = None, db_path: str | None = None,
                seed_demo: bool = True, reasoner: Reasoner | None = None) -> "AgentApp":
         config = ConfigManager(root) if root else get_config()
-        setup_logging(config.log_dir)
-        bind_audit(config.log_dir)
+        # WorkspaceManager is the single path authority — storage backends
+        # request paths through it; nothing hardcodes absolute paths.
+        workspace = WorkspaceManager(config.root if config.root else Path(__file__).resolve().parent.parent)
+        setup_logging(workspace.logs)
+        bind_audit(workspace.logs)
+        workspace.clean_tmp()
 
-        db = Database(db_path or (config.data_dir / "agentcore.db"))
+        db = Database(db_path or str(workspace.db_path()))
         db.create_all()
 
         bus = EventBus()
@@ -89,16 +97,16 @@ class AgentApp:
         memory = MemoryManager(db, config, llm=llm)
         registry = ToolRegistry()
 
-        sandbox = config.data_dir / "sandbox"
-        sandbox.mkdir(parents=True, exist_ok=True)
+        sandbox = workspace.sandbox
         echo_tools.register_all(registry)
         fs_tools.register_all(registry, str(sandbox))
         knowledge_tools.register_all(registry, memory)
-        life_tools.register_all(registry, db)
+        todo_provider = TodoStorageProvider(SQLiteTodoStorage(db))
+        life_tools.register_all(registry, db, todo_provider=todo_provider)
         # capability workflows (real implementations)
         wf_fs.register_all(registry, sandbox)
         wf_windows.register_all(registry)
-        wf_browser.register_all(registry, config.data_dir / "screenshots")
+        wf_browser.register_all(registry, workspace.screenshots)
 
         # permissions (confirmation hook is CLI/UI-provided)
         permissions = PermissionManager(config)
@@ -142,8 +150,12 @@ class AgentApp:
         )
         from tools.monitor import ToolMonitor
         tool_monitor = ToolMonitor()
+        recovery_policy = RecoveryPolicy()
         executor = Executor(db, llm, memory, registry, observers, policy,
-                           devices=devices, bus=bus, monitor=tool_monitor)
+                           devices=devices, bus=bus, monitor=tool_monitor,
+                           recovery=recovery_policy, workspace=workspace,
+                           services={"todo_storage_provider": todo_provider,
+                                     "devices": devices, "workspace": workspace})
 
         # plugins: auto-discover plugins/ and register their tools (Phase 8)
         plugins = PluginManager(config.root / "plugins")
@@ -156,6 +168,11 @@ class AgentApp:
                   orchestrator, executor, observers, permissions, reasoner)
         app.plugins = plugins
         app.tool_monitor = tool_monitor
+        app.workspace = workspace
+        app.todo_provider = todo_provider
+        app.recovery = recovery_policy
+        app.tool_health = ToolHealthManager()
+        app.tool_health.scan(registry, devices)
 
         if seed_demo:
             seed_demo_memory(memory)

@@ -181,6 +181,25 @@ def create_app(agent: AgentApp | None = None, template: Path | None = None) -> F
         return {"tools": agent_app.tool_monitor.stats(),
                 "current": agent_app.tool_monitor.current()}
 
+    @app.get("/api/tools/health")
+    async def tools_health() -> dict:
+        """Tool health: READY / BROKEN / UNAVAILABLE / BUSY + install hints.
+        BROKEN tools are detected at startup (e.g. missing Playwright)."""
+        health = agent_app.tool_health.all()
+        monitor = {t["tool"]: t for t in agent_app.tool_monitor.stats()}
+        out = {}
+        for name, h in health.items():
+            state = h["state"]
+            m = monitor.get(name)
+            if m and m["state"] == "busy":
+                state = "BUSY"
+            out[name] = {"state": state, "message": h["message"],
+                         "install_hint": h["install_hint"],
+                         "recovery_attempts": (m or {}).get("recovery_attempts", 0),
+                         "recovery_success": (m or {}).get("recovery_success", 0)}
+        return {"tools": out,
+                "broken": [n for n, h in out.items() if h["state"] == "BROKEN"]}
+
     @app.get("/api/execution/live")
     async def execution_live(session_id: str = "web") -> dict:
         """Live execution state: current goal / plan / step / running tool /

@@ -40,11 +40,13 @@ class FailureInfo:
     kind: FailureClass
     detail: str
     tool: str = ""
+    recoverable: bool = False
     suggestions: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {"class": self.kind.value, "label": self.kind.label(),
                 "detail": self.detail, "tool": self.tool,
+                "recoverable": self.recoverable,
                 "suggestions": self.suggestions}
 
 
@@ -83,12 +85,41 @@ def _match_kind(text: str) -> FailureClass | None:
 
 
 # ---------------------------------------------------------------------------
+def _recoverable(kind: FailureClass, detail: str) -> bool:
+    """Recoverability rules:
+      - DEVICE offline / NETWORK / API rate-limit/5xx  -> recoverable (retry/repair)
+      - API auth (bad key)                              -> NOT recoverable
+      - TOOL permission/invalid-args                    -> NOT recoverable
+      - storage missing (todo etc.)                     -> recoverable via init
+    """
+    low = detail.lower()
+    if kind == FailureClass.DEVICE:
+        return True                      # device may come back / be reconnected
+    if kind == FailureClass.NETWORK:
+        return True                      # transient
+    if kind == FailureClass.API:
+        # bad key / auth is a config problem; rate-limit & 5xx are transient
+        if any(s in low for s in ("auth", "api key", "401", "403", "invalid key",
+                                  "permission")):
+            return False
+        return True
+    if kind == FailureClass.TOOL:
+        # storage-not-initialized is recoverable via initialization
+        if any(s in low for s in ("storage", "not initialized", "missing table",
+                                  "no such table", "initialize")):
+            return True
+        return False
+    return False                        # planner/unknown are non-recoverable
+
+
+# ---------------------------------------------------------------------------
 def classify(exc: BaseException | str, *, component: str = "executor",
              tool: str = "") -> FailureInfo:
     """Classify an exception/error string into a FailureClass with detail.
 
     `component` hints the source: 'planner', 'tool', 'device', 'llm'/'api',
     'executor'. Specific provider errors (from llm/providers/base) map to API.
+    Sets `recoverable` per the recovery rules.
     """
     detail = str(exc)
     if isinstance(exc, str):
@@ -100,15 +131,20 @@ def classify(exc: BaseException | str, *, component: str = "executor",
                                    ProviderUnavailableError, RateLimitError)
         if isinstance(exc, (RateLimitError, AuthError, ContextOverflowError,
                             ProviderUnavailableError)):
-            return FailureInfo(FailureClass.API, detail, tool=tool)
+            info = FailureInfo(FailureClass.API, detail, tool=tool)
+            info.recoverable = _recoverable(FailureClass.API, detail)
+            return info
     except Exception:  # noqa: BLE001
         pass
 
     # 2) component hint
     if component == "planner":
-        return FailureInfo(FailureClass.PLANNER, detail, tool=tool)
+        return FailureInfo(FailureClass.PLANNER, detail, tool=tool,
+                           recoverable=False)
     if component == "llm" or component == "api":
-        return FailureInfo(FailureClass.API, detail, tool=tool)
+        info = FailureInfo(FailureClass.API, detail, tool=tool)
+        info.recoverable = _recoverable(FailureClass.API, detail)
+        return info
 
     # 3) text/type signal
     kind = _match_kind(detail)
@@ -121,7 +157,9 @@ def classify(exc: BaseException | str, *, component: str = "executor",
             kind = FailureClass.TOOL
         else:
             kind = FailureClass.UNKNOWN
-    return FailureInfo(kind, detail, tool=tool)
+    info = FailureInfo(kind, detail, tool=tool)
+    info.recoverable = _recoverable(kind, detail)
+    return info
 
 
 # ---------------------------------------------------------------------------

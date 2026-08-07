@@ -106,6 +106,8 @@ class EventType(str, Enum):
     STEP_COMPLETED = "step_completed"
     STEP_FAILED = "step_failed"
     TOOL_STARTED = "tool_started"
+    RECOVERY_ATTEMPT = "recovery_attempt"
+    RECOVERY_FAILED = "recovery_failed"
     TOOL_RESULT = "tool_result"
     OBSERVER_RESULT = "observer_result"
     PROVIDER_FAILED = "provider_failed"

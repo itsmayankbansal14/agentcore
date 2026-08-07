@@ -27,6 +27,9 @@ class ToolStats:
     last_error: str = ""
     busy: bool = False
     busy_since: float = 0.0
+    # self-healing
+    recovery_attempts: int = 0
+    recovery_success: int = 0
 
     def avg_ms(self) -> float:
         return round(self.total_ms / self.runs, 1) if self.runs else 0.0
@@ -67,6 +70,16 @@ class ToolMonitor:
         if error:
             st.last_error = error
 
+    def record_recovery(self, name: str, success: bool) -> None:
+        st = self._stats.get(name)
+        if st is None:
+            st = ToolStats(name=name)
+            self._stats[name] = st
+            self._order.append(name)
+        st.recovery_attempts += 1
+        if success:
+            st.recovery_success += 1
+
     def current(self) -> dict[str, Any] | None:
         """The tool running right now (if any)."""
         for name in reversed(self._order):
@@ -90,5 +103,7 @@ class ToolMonitor:
                 "avg_ms": st.avg_ms(),
                 "success_rate": st.success_rate(),
                 "last_error": st.last_error or None,
+                "recovery_attempts": st.recovery_attempts,
+                "recovery_success": st.recovery_success,
             })
         return out
