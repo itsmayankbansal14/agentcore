@@ -1,0 +1,98 @@
+"""AgentCore — tests/test_api.py
+API + WebSocket tests using FastAPI TestClient (runs the app in-process).
+Run: python tests/test_api.py
+"""
+from __future__ import annotations
+
+import asyncio
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from fastapi.testclient import TestClient
+
+from api.server import create_app
+from core.app import AgentApp
+from llm.providers import MockProvider
+
+PASS = 0
+FAIL = 0
+
+
+def check(name: str, cond: bool, detail: str = "") -> None:
+    global PASS, FAIL
+    if cond:
+        PASS += 1
+        print(f"  ✅ {name}")
+    else:
+        FAIL += 1
+        print(f"  ❌ {name} {detail}")
+
+
+def main() -> None:
+    import tempfile
+    from llm.router import KeyRuntime
+    app = AgentApp.create(db_path=tempfile.mktemp(suffix=".db"))
+    # hermetic: mock-only, even if real keys exist in .env
+    app.llm.router.keys = [KeyRuntime(provider="mock", key="mock-key", model="mock-1")]
+    prov = MockProvider()
+    app.llm._factory = lambda n, k, m: prov
+    client = TestClient(create_app(app))
+
+    print("\n[A] REST endpoints")
+    r = client.get("/api/health")
+    check("health", r.status_code == 200 and r.json()["ok"])
+    r = client.get("/api/status?session_id=web")
+    check("status", r.status_code == 200 and "tools_registered" in r.json())
+    r = client.get("/api/tools")
+    check("tools list", r.status_code == 200 and r.json()["count"] >= 5,
+          str(r.json()["count"]))
+    r = client.get("/api/devices")
+    check("devices", r.status_code == 200 and "windows" in r.json())
+    r = client.post("/api/provider/check")
+    check("provider check", r.status_code == 200 and "providers" in r.json())
+
+    print("\n[B] Chat via REST")
+    prov.enqueue("[ECHO]")
+    r = client.post("/api/chat", json={"message": "hello", "session_id": "api"})
+    check("chat ok", r.status_code == 200 and "response" in r.json())
+    check("chat has text", bool(r.json()["response"]))
+
+    print("\n[C] Chat via SSE stream")
+    prov.enqueue("[ECHO]")
+    with client.stream("POST", "/api/chat/stream",
+                       json={"message": "stream me", "session_id": "api"}) as s:
+        body = "".join(s.iter_text())
+    check("sse returned", "data:" in body and "stream me" in body, body[:120])
+
+    print("\n[D] Plan + resume via REST")
+    r = client.post("/api/plan", json={"goal": "build an app then test it",
+                                       "session_id": "api"})
+    check("plan created", r.status_code == 200 and "next_step" in r.json(),
+          r.text[:120])
+    r = client.post("/api/resume", json={"session_id": "api"})
+    check("resume", r.status_code == 200 and "response" in r.json())
+
+    print("\n[E] Memory + knowledge via REST")
+    r = client.get("/api/memory/facts?session_id=api")
+    check("facts endpoint", r.status_code == 200 and "facts" in r.json())
+    # ingest + search
+    import tempfile as _t
+    note = Path(_t.mkdtemp()) / "n.md"
+    note.write_text("AgentCore dashboard test document about binary search O(log n).")
+    asyncio.run(app.memory.add_knowledge(str(note)))
+    r = client.get("/api/knowledge/search?q=binary+search&top_k=3")
+    check("knowledge search", r.status_code == 200 and r.json()["count"] >= 1,
+          r.text[:120])
+
+    print("\n[F] Dashboard page")
+    r = client.get("/")
+    check("dashboard html", r.status_code == 200 and "AGENTCORE" in r.text)
+
+    print(f"\n{'='*40}\nPASSED: {PASS}   FAILED: {FAIL}")
+    sys.exit(1 if FAIL else 0)
+
+
+if __name__ == "__main__":
+    main()
