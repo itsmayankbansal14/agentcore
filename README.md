@@ -3,7 +3,9 @@
 Windows laptop = controller · Android phone = thin remote executor.
 LLM **only reasons**; tools act; SQLite remembers; the **task loop** is the center.
 
-> Test status: **157 checks passing** (47 arch + 37 core + 34 api + 12 android + 19 vertical-slice + 8 live) across 4 suites:
+> Test status: **219 checks passing** (47 arch + 37 core + 34 api + 12 android +
+> 19 vertical-slice + 37 reliability + **25 pytest integration**) · coverage 55.5%
+> on the integration suite alone (40% floor enforced). across 4 suites:
 > `tests/test_architecture.py` (47) · `tests/smoke.py` (37) · `tests/test_api.py` (13) ·
 > `scripts/test_live.py` (8, against real OpenRouter).
 
@@ -214,6 +216,37 @@ agentcore/
 ├─ scripts/      migrate_jarvis.py, test_live.py
 └─ main.py       CLI: chat | say | plan | resume | status | whoami | ingest | search | facts | serve
 ```
+
+## Integration testing framework (pytest)
+
+Every new feature **must include integration tests** — enforced by the build
+gate (`scripts/build.py` smoke stage runs the suite; `verify_build.py` fails
+if any of the 9 runtime boundaries lacks an integration test file).
+
+```bash
+# run the integration suite + coverage
+python -m pytest tests/integration -m integration -v
+python -m pytest --cov --cov-config=.coveragerc \
+  --cov-report=term --cov-report=html:htmlcov tests/integration -m integration
+# open htmlcov/index.html for the coverage report
+```
+
+| Boundary | Integration test file |
+|---|---|
+| Planner → Executor | `tests/integration/test_planner_executor.py` |
+| Executor → Tool | `tests/integration/test_executor_tool.py` |
+| Tool → Observer | `tests/integration/test_tool_observer_memory.py` |
+| Observer → Memory | `tests/integration/test_tool_observer_memory.py` |
+| Android workflows | `tests/integration/test_android_workflow.py` |
+| Windows workflows | `tests/integration/test_windows_workflow.py` |
+| Database recovery | `tests/integration/test_database_recovery.py` |
+| Permission system | `tests/integration/test_permissions.py` |
+| API provider switching | `tests/integration/test_provider_switching.py` |
+
+Shared fixtures (`conftest.py`): a fresh **real** AgentApp runtime per test
+(real Planner/Executor/Tools/Observer/Memory/SQLite) with only the external
+LLM pinned to a deterministic mock. Coverage config in `.coveragerc`
+(branch coverage, `fail_under=40`).
 
 ## Architecture decisions (why)
 
