@@ -154,7 +154,7 @@ def main() -> None:
     if args and args[0] == "--launcher":
         _cmd_launcher(port=int(args[1]) if len(args) > 1 and args[1].isdigit() else 8000)
         return
-    if args and args[0] == "--dev":
+    if args and args[0] in ("--dev", "--no-reload"):
         _cmd_dev(port=8000, reload="--no-reload" not in args)
         return
     if not args:
@@ -163,7 +163,7 @@ def main() -> None:
             _cmd_launcher()
             return
         # PRIMARY DEV ENTRY: `python main.py` → dev console at localhost:8000 (hot reload)
-        _cmd_dev(port=8000, reload="--no-reload" not in args)
+        _cmd_dev(port=8000, reload=True)
         return
     if args[0] == "chat":
         repl(app, session_id)
