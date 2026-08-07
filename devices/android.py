@@ -44,6 +44,11 @@ APP_CMD_CAPABILITIES = [
     "device.android.get_foreground_app",
     "device.android.clipboard",
     "device.android.share_file",
+    # Phase 6: accessibility UI control + capability reporting
+    "device.android.ui_tap",
+    "device.android.ui_swipe",
+    "device.android.ui_text",
+    "device.android.report_capabilities",
 ]
 
 # non-command messages the phone can send

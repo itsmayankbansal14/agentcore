@@ -19,6 +19,7 @@ from config.manager import ConfigManager, get_config
 from core.bus import EventBus
 from core.logging import bind_audit, setup_logging
 from core.permissions import PermissionManager
+from core.plugins import PluginManager
 from database.connection import Database
 from devices.android import AndroidDevice
 from devices.base import DeviceManager
@@ -122,10 +123,16 @@ class AgentApp:
         executor = Executor(db, llm, memory, registry, observers, policy,
                            devices=devices, bus=bus)
 
+        # plugins: auto-discover plugins/ and register their tools (Phase 8)
+        plugins = PluginManager(config.root / "plugins")
+        plugins.load_all({"registry": registry, "app": None,
+                          "db": db, "memory": memory, "devices": devices})
+
         orchestrator = AgentOrchestrator(config, bus, db, memory, llm, registry,
                                          planner, devices, executor, observers, permissions)
         app = cls(config, db, bus, memory, llm, registry, planner, devices,
                   orchestrator, executor, observers, permissions, reasoner)
+        app.plugins = plugins
 
         if seed_demo:
             seed_demo_memory(memory)

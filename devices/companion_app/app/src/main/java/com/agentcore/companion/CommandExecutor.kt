@@ -5,6 +5,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import com.agentcore.companion.executors.ScreenshotExecutor
+import com.agentcore.companion.executors.UIActionsService
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.WebSocket
@@ -55,8 +57,40 @@ class CommandExecutor(private val ctx: Context) {
                 Triple(true, NotificationStore.recent(), null)
             "device.android.get_foreground_app" ->
                 Triple(true, mapOf("app" to ForegroundApp.get(ctx)), null)
-            "device.android.screenshot" ->
-                Triple(false, emptyMap<String, Any?>(), "screen capture requires MediaProjection grant — enable in app")
+            "device.android.screenshot" -> {
+                val (ok, data) = ScreenshotExecutor.capture(ctx)
+                Triple(ok, data as Map<String, Any?>, if (ok) null else (data["error"] as? String))
+            }
+            "device.android.ui_tap" -> {
+                val svc = UIActionsService.instance
+                val ok = svc?.tap((params["x"] ?: "0").toFloat(), (params["y"] ?: "0").toFloat()) ?: false
+                Triple(ok, mapOf("tapped" to listOf(params["x"], params["y"])),
+                       if (ok) null else "accessibility UI control not enabled")
+            }
+            "device.android.ui_swipe" -> {
+                val svc = UIActionsService.instance
+                val ok = svc?.swipe((params["x1"] ?: "0").toFloat(), (params["y1"] ?: "0").toFloat(),
+                                   (params["x2"] ?: "0").toFloat(), (params["y2"] ?: "0").toFloat()) ?: false
+                Triple(ok, mapOf("swiped" to listOf(params["x1"], params["y1"], params["x2"], params["y2"])),
+                       if (ok) null else "accessibility UI control not enabled")
+            }
+            "device.android.ui_text" -> {
+                val svc = UIActionsService.instance
+                val ok = svc?.type(params["text"] ?: "") ?: false
+                Triple(ok, mapOf("typed" to (params["text"] ?: "").take(40)),
+                       if (ok) null else "accessibility UI control not enabled")
+            }
+            "device.android.report_capabilities" ->
+                Triple(true, mapOf(
+                    "executors" to listOf("open_app","open_url","open_youtube","open_whatsapp",
+                                          "open_settings","read_notifications","screenshot",
+                                          "get_foreground_app","clipboard","share_file",
+                                          "ui_tap","ui_swipe","ui_text"),
+                    "permissions" to mapOf(
+                        "notification_access" to NotificationStore.recent().isNotEmpty(),
+                        "usage_access" to (ForegroundApp.get(ctx) != "unknown"),
+                        "accessibility" to (UIActionsService.instance != null),
+                        "screen_capture" to false)), null)
             else -> Triple(false, emptyMap<String, Any?>(), "unknown command $cmd")
         }
 }

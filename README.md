@@ -3,7 +3,7 @@
 Windows laptop = controller · Android phone = thin remote executor.
 LLM **only reasons**; tools act; SQLite remembers; the **task loop** is the center.
 
-> Test status: **120 checks passing** across 4 suites:
+> Test status: **130 checks passing** (47 arch + 37 core + 26 api + 12 android + 8 live) across 4 suites:
 > `tests/test_architecture.py` (47) · `tests/smoke.py` (37) · `tests/test_api.py` (13) ·
 > `scripts/test_live.py` (8, against real OpenRouter).
 

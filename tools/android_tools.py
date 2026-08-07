@@ -20,11 +20,13 @@ class _AndroidTool(Tool):
         self.devices = devices
 
     async def execute(self, params: dict[str, Any], ctx: dict[str, Any]) -> ToolResult:
-        dev = self.devices.get("android")
+        # multi-device: optional device_id (default "android" — the primary phone)
+        device_id = params.pop("device_id", "android") if isinstance(params, dict) else "android"
+        dev = self.devices.get(device_id)
         if dev is None:
-            return ToolResult(ok=False, error="android device not registered")
+            return ToolResult(ok=False, error=f"device not registered: {device_id}")
         if not dev.health().get("online"):
-            return ToolResult(ok=False, error="android device offline",
+            return ToolResult(ok=False, error=f"{device_id} offline",
                               data={"blocked": True})
         return await dev.execute(self.cmd_name, params)
 
@@ -110,10 +112,45 @@ class ShareFileTool(_AndroidTool):
     cmd_name = "device.android.share_file"
 
 
+class UITapTool(_AndroidTool):
+    name = "android_ui_tap"
+    description = "Tap at screen coordinates on the phone (x, y in px). Requires Accessibility UI control."
+    parameters = {"type": "object",
+                  "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}},
+                  "required": ["x", "y"]}
+    cmd_name = "device.android.ui_tap"
+
+
+class UISwipeTool(_AndroidTool):
+    name = "android_ui_swipe"
+    description = "Swipe on the phone screen from (x1,y1) to (x2,y2). Requires Accessibility UI control."
+    parameters = {"type": "object",
+                  "properties": {"x1": {"type": "integer"}, "y1": {"type": "integer"},
+                                 "x2": {"type": "integer"}, "y2": {"type": "integer"}},
+                  "required": ["x1", "y1", "x2", "y2"]}
+    cmd_name = "device.android.ui_swipe"
+
+
+class UITypeTool(_AndroidTool):
+    name = "android_ui_text"
+    description = "Type text into the focused field on the phone. Requires Accessibility UI control."
+    parameters = {"type": "object", "properties": {"text": {"type": "string"}},
+                  "required": ["text"]}
+    cmd_name = "device.android.ui_text"
+
+
+class CapabilitiesTool(_AndroidTool):
+    name = "android_capabilities"
+    description = "Report which executors/permissions the phone app has available."
+    parameters = {"type": "object", "properties": {}}
+    cmd_name = "device.android.report_capabilities"
+
+
 def register_all(registry, devices: DeviceManager) -> None:
     for tool in (OpenAppTool(devices), OpenUrlTool(devices), OpenYoutubeTool(devices),
                  OpenWhatsappTool(devices), OpenSettingsTool(devices),
                  ReadNotificationsTool(devices), ScreenshotTool(devices),
                  ForegroundAppTool(devices), ClipboardTool(devices),
-                 ShareFileTool(devices)):
+                 ShareFileTool(devices), UITapTool(devices), UISwipeTool(devices),
+                 UITypeTool(devices), CapabilitiesTool(devices)):
         registry.register(tool)

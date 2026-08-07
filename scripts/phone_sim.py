@@ -64,6 +64,21 @@ def execute(cmd: str, params: dict) -> dict:
         return {"ok": True, "data": {"set": params.get("text")}}
     if cmd == "device.android.share_file":
         return {"ok": True, "data": {"shared": params.get("path")}}
+    if cmd == "device.android.ui_tap":
+        return {"ok": True, "data": {"tapped": [params.get("x"), params.get("y")]}}
+    if cmd == "device.android.ui_swipe":
+        return {"ok": True, "data": {"swiped": [params.get("x1"), params.get("y1"),
+                                                params.get("x2"), params.get("y2")]}}
+    if cmd == "device.android.ui_text":
+        return {"ok": True, "data": {"typed": (params.get("text") or "")[:40]}}
+    if cmd == "device.android.report_capabilities":
+        return {"ok": True, "data": {
+            "executors": ["open_app", "open_url", "open_youtube", "open_whatsapp",
+                          "open_settings", "read_notifications", "screenshot",
+                          "get_foreground_app", "clipboard", "share_file",
+                          "ui_tap", "ui_swipe", "ui_text"],
+            "permissions": {"notification_access": True, "usage_access": False,
+                            "accessibility": True, "screen_capture": True}}}
     return {"ok": False, "error": f"unknown command {cmd}"}
 
 

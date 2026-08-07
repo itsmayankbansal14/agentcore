@@ -149,6 +149,9 @@ async def main() -> None:
         "device.android.read_notifications": {"ok": True, "data": {"notifications": [
             {"app": "WhatsApp", "title": "hi"}]}},
         "device.android.screenshot": {"ok": False, "error": "user denied screen capture"},
+        "device.android.ui_tap": {"ok": True, "data": {"tapped": [100, 200]}},
+        "device.android.report_capabilities": {"ok": True, "data": {
+            "executors": ["open_app", "ui_tap"], "permissions": {"accessibility": True}}},
     }, stop))
 
     check("device online+paired", dev.health()["online"] and dev.health()["paired"])
@@ -167,6 +170,12 @@ async def main() -> None:
           f"ok={r3.ok} err={r3.error}")
 
     r4 = await dev.execute("device.android.open_app", {"app": "x"}, timeout=0.5)
+    r5 = await dev.execute("device.android.ui_tap", {"x": 100, "y": 200})
+    check("ui_tap (Phase 6) ok", r5.ok and r5.data["data"]["tapped"] == [100, 200],
+          f"ok={r5.ok} err={r5.error}")
+    r6 = await dev.execute("device.android.report_capabilities", {})
+    check("capability reporting ok", r6.ok and "executors" in r6.data["data"],
+          str(r6.data)[:80])
     # device should still be online (no hang)
     check("still responsive after sequence", dev.health()["online"])
 
