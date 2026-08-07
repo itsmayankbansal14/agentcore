@@ -152,6 +152,7 @@ table.tools td{padding:4px 6px;border-bottom:1px solid #14142a;font-family:monos
         <div class="tab" data-tab="tools" onclick="tab('tools')">🧰 Registry</div>
         <div class="tab" data-tab="observer" onclick="tab('observer')">👁 Observer</div>
         <div class="tab" data-tab="memory" onclick="tab('memory')">🧠 Memory</div>
+        <div class="tab" data-tab="deps" onclick="tab('deps')">🔌 Dependencies</div>
         <div class="tab" data-tab="knowledge" onclick="tab('knowledge')">📚 Knowledge</div>
         <div class="tab" data-tab="logs" onclick="tab('logs')">📜 Logs</div>
       </div>
@@ -162,6 +163,7 @@ table.tools td{padding:4px 6px;border-bottom:1px solid #14142a;font-family:monos
       <div class="tabpane" id="pane-tools"><ul id="toolsList"><li>loading…</li></ul></div>
       <div class="tabpane" id="pane-observer"><div class="eventlog" id="observerList" style="max-height:340px"><div>loading…</div></div></div>
       <div class="tabpane" id="pane-memory"><ul id="memoryList"><li>loading…</li></ul></div>
+      <div class="tabpane" id="pane-deps"><ul id="depsList"><li>loading…</li></ul></div>
       <div class="tabpane" id="pane-knowledge">
         <div style="display:flex;gap:6px">
           <input id="kq" placeholder="search knowledge…" style="flex:1;background:#14141f;border:1px solid #2a2a44;color:#fff;padding:6px 8px;border-radius:8px;font-size:11px;outline:none">
@@ -386,6 +388,18 @@ async function refreshMemory(){
   try{
     const d = await (await fetch('/api/memory/facts?session_id='+sid())).json();
     $('memoryList').innerHTML = (d.facts.length? d.facts.map(f=>`<li>${f}</li>`).join('') : '<li>(no facts yet)</li>');
+  }catch(e){}
+}
+async function refreshDeps(){
+  try{
+    const d = await (await fetch('/api/deps')).json();
+    const badge = s => s==='READY' ? '<span class="toolbar ready">READY</span>'
+      : s==='MISSING' ? '<span class="toolbar" style="background:rgba(248,113,113,.15);color:#f87171;border-color:rgba(248,113,113,.4)">MISSING</span>'
+      : s==='BROKEN' ? '<span class="toolbar" style="background:rgba(248,113,113,.2);color:#f87171;border-color:rgba(248,113,113,.5)">BROKEN</span>'
+      : '<span class="toolbar busy">INSTALLING</span>';
+    $('depsList').innerHTML = Object.entries(d.dependencies).map(([n,h])=>
+      `<li>${n} ${badge(h.state)} ${h.optional?'<span style="color:#6b7280">(optional)</span>':''} <span style="color:#6b7280">${h.detail}</span>${h.fix? ' <span style="color:#fbbf24">fix: '+h.fix+'</span>':''}</li>`).join('')
+      + (d.broken_required.length? `<li style="color:#f87171">⚠ required broken: ${d.broken_required.join(', ')}</li>`:'');
   }catch(e){}
 }
 async function refreshRuntime(){

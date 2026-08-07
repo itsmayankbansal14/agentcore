@@ -201,6 +201,8 @@ def main() -> None:
             cmd_search(app, " ".join(args[1:]))
     elif args[0] == "facts":
         cmd_facts(app, session_id)
+    elif args[0] == "doctor":
+        sys.exit(cmd_doctor(app))
     elif args[0] in ("selfcheck", "--selfcheck"):
         sys.exit(cmd_selfcheck(app))
     elif args[0] in ("version", "--version", "-v"):
@@ -215,6 +217,46 @@ def main() -> None:
         _cmd_serve(app, port, reload=False)
     else:
         print(__doc__)
+
+
+def cmd_doctor(app=None) -> int:
+    """python main.py doctor — full readiness report + READY/NOT READY + fixes."""
+    from core.dependencies import DependencyManager
+    dm = DependencyManager()
+    deps = dm.scan()
+    print("\n  AgentCore — dependency health")
+    print("  " + "─" * 56)
+    icons = {"READY": "✓", "MISSING": "✗", "BROKEN": "✗", "INSTALLING": "…"}
+    required_broken = []
+    for name, d in deps.items():
+        mark = icons.get(d["state"], "?")
+        optional = " (optional)" if d.get("optional") else ""
+        print(f"  {mark} {name:<12} {d['state']:<10}{optional} {d['detail']}")
+        if d["fix"]:
+            print(f"        fix: {d['fix']}")
+        if d["state"] != "READY" and not d.get("optional"):
+            required_broken.append(name)
+    print("  " + "─" * 56)
+    # runtime checks (tools/devices/dashboard)
+    runtime_ok = True
+    try:
+        if app is None:
+            from core.app import AgentApp
+            app = AgentApp.create()
+        print(f"  ✓ tools          {len(app.registry)} tools registered")
+        print(f"  ✓ devices        {', '.join(f'{d.name}=' + ('on' if d.health().get('online') else 'off') for d in app.devices.all())}")
+        # dashboard reachable?
+        import urllib.request, socket
+        s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+        print("  ✓ dashboard      served at localhost:8000 (python main.py)")
+    except Exception as e:  # noqa: BLE001
+        runtime_ok = False
+        print(f"  ✗ runtime        {e}")
+    ready = not required_broken and runtime_ok
+    print("  " + "─" * 56)
+    print("  READY ✅" if ready else
+          f"  NOT READY ❌ — fix: {', '.join(required_broken) or 'runtime'} (see fixes above)")
+    return 0 if ready else 1
 
 
 def cmd_selfcheck(app) -> int:

@@ -183,6 +183,9 @@ class AgentApp:
         app.tool_health = ToolHealthManager()
         app.tool_health.scan(registry, devices)
         app.target_resolver = target_resolver
+        from core.dependencies import DependencyManager
+        app.dependency_manager = DependencyManager()
+        app.dependency_manager.scan()
 
         if seed_demo:
             seed_demo_memory(memory)

@@ -37,9 +37,16 @@ ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 EXE_NAME = "AgentCore.exe" if sys.platform == "win32" else "AgentCore"
 
-EXCLUDE_TOP = {"data", "logs", ".git", ".venv", "dist", "build", "__pycache__"}
-EXCLUDE_SUFFIX = {".pyc", ".db", ".db-shm", ".db-wal"}
-EXCLUDE_FILES = {".env"}
+EXCLUDE_TOP = {"data", "logs", ".git", ".github", ".venv", "dist", "build",
+                "__pycache__", ".pytest_cache", "htmlcov", ".vscode", ".idea",
+                "exports", "cache", "tmp"}
+EXCLUDE_SUFFIX = {".pyc", ".db", ".db-shm", ".db-wal", ".log", ".pyo"}
+EXCLUDE_FILES = {".env", ".gitignore", ".coverage", ".coveragerc", "pytest.ini",
+                 "requirements.sha256"}
+# files that must NEVER be in a release (release-quality gate)
+RELEASE_FORBIDDEN = {".env", ".git", ".github", ".gitignore", ".coverage",
+                     ".pytest_cache", "htmlcov", ".vscode", ".idea",
+                     "__pycache__", ".db-shm", ".db-wal", ".log"}
 
 HIDDEN_IMPORTS = [
     "sqlalchemy", "structlog", "pydantic", "fastapi", "uvicorn",
@@ -209,6 +216,30 @@ def stage_smoke_exe() -> bool:
 # ---------------------------------------------------------------------------
 # PACKAGE
 # ---------------------------------------------------------------------------
+def release_quality_check(zip_path) -> bool:
+    """Fail the release if any dev artifact / secret / db / log / cache sneaks in."""
+    import zipfile as _z
+    with _z.ZipFile(zip_path) as zf:
+        names = zf.namelist()
+    forbidden = []
+    for n in names:
+        low = n.lower()
+        # forbid the real .env but ALLOW .env.example (the safe template)
+        if Path(n).name == ".env":
+            forbidden.append(n)
+        if any(f in low for f in (".git", "htmlcov", ".pytest_cache",
+                                  ".vscode", ".idea", "__pycache__", ".pyc",
+                                  ".db-shm", ".db-wal", ".log", ".coverage")):
+            forbidden.append(n)
+        if low.endswith((".db", ".pyc", ".log", ".coverage")):
+            forbidden.append(n)
+    if forbidden:
+        print(f"  ❌ RELEASE QUALITY FAIL — dev artifacts in package: {forbidden[:8]}")
+        return False
+    print("  ✓ release quality: no dev artifacts / secrets / dbs / logs / caches")
+    return True
+
+
 def stage_package(version: str | None = None) -> bool:
     DIST.mkdir(exist_ok=True)
     if version is None:
@@ -233,6 +264,8 @@ def stage_package(version: str | None = None) -> bool:
                 continue
             zf.write(p, rel)
     print(f"  ✓ packaged {out.name} ({out.stat().st_size/1024:.1f} KB)")
+    if not release_quality_check(out):
+        return False
     return True
 
 

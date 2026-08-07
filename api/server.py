@@ -181,6 +181,15 @@ def create_app(agent: AgentApp | None = None, template: Path | None = None) -> F
         return {"tools": agent_app.tool_monitor.stats(),
                 "current": agent_app.tool_monitor.current()}
 
+    @app.get("/api/deps")
+    async def deps_health() -> dict:
+        """DependencyManager health: READY/INSTALLING/MISSING/BROKEN per dep."""
+        dm = agent_app.dependency_manager
+        deps = dm.all()
+        broken_required = dm.broken_required()
+        return {"dependencies": deps, "broken_required": broken_required,
+                "ready": not broken_required}
+
     @app.get("/api/tools/health")
     async def tools_health() -> dict:
         """Tool health: READY / BROKEN / UNAVAILABLE / BUSY + install hints.
