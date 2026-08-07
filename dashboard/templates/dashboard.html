@@ -123,6 +123,8 @@ table.tools td{padding:4px 6px;border-bottom:1px solid #14142a;font-family:monos
       <h3>⚙️ Live Execution</h3>
       <div class="execbox">
         <div class="execrow"><span class="lbl">Goal</span><span class="val big" id="lx-goal">—</span></div>
+        <div class="execrow"><span class="lbl">Target</span><span class="val" id="lx-target"><span class="toolbar ready">windows (default)</span></span></div>
+        <div class="execrow"><span class="lbl">Device</span><span class="val" id="lx-device">windows</span></div>
         <div class="execrow"><span class="lbl">Phase</span><span class="val" id="lx-phase">idle</span></div>
         <div class="execrow"><span class="lbl">Step</span><span class="val" id="lx-step">—</span></div>
         <div class="execrow"><span class="lbl">Tool</span><span class="val" id="lx-tool"><span class="toolbar ready">ready</span> —</span></div>
@@ -238,8 +240,18 @@ function tab(name){
 // ---------- LIVE EXECUTION PANEL ----------
 async function refreshLiveExec(){
   try{
-    const d = await (await fetch('/api/execution/live?session_id='+sid())).json();
+    const [d, tg] = await Promise.all([
+      fetch('/api/execution/live?session_id='+sid()).json(),
+      fetch('/api/targets?session_id='+sid()).then(r=>r.json())]);
     $('lx-goal').textContent = d.goal || '—';
+    // target resolution: last resolved or default
+    const last = tg.last_resolved;
+    const dev = last ? last.device : (tg.session_preference || 'windows');
+    const devBadge = dev==='android' ? '<span class="toolbar busy" style="background:rgba(248,113,113,.15);color:#f87171;border-color:rgba(248,113,113,.4)">android</span>'
+      : dev==='browser' ? '<span class="toolbar" style="background:rgba(251,191,36,.12);color:#fbbf24;border-color:rgba(251,191,36,.35)">browser</span>'
+      : '<span class="toolbar ready">windows</span>';
+    $('lx-device').textContent = dev;
+    $('lx-target').innerHTML = devBadge + ' <span style="color:#6b7280;font-size:9px">' + (last? (last.reason||'').slice(0,44) : 'default device') + '</span>';
     $('lx-phase').textContent = d.phase;
     $('lx-phase').className = 'val';
     if(d.phase==='executing'){ $('lx-phase').textContent = 'EXECUTING'; $('lx-phase').style.color='#a78bfa'; }
@@ -336,9 +348,20 @@ async function refreshObserver(){
 }
 async function refreshDevices(){
   try{
-    const d = await (await fetch('/api/devices')).json();
-    $('devicesList').innerHTML = Object.entries(d).map(([k,v])=>
-      `<li>${k} — ${v.online?'🟢 online':'⚫ offline'} <span style="color:#6b7280">(${v.transport||''}${v.serial?' · '+v.serial:''})</span></li>`).join('');
+    const [d, tg] = await Promise.all([
+      fetch('/api/devices').then(r=>r.json()),
+      fetch('/api/targets?session_id='+sid()).then(r=>r.json())]);
+    const rows = Object.entries(d).map(([k,v])=>{
+      const health = v.online ? '🟢 online' : '⚫ offline';
+      const isDefault = k==='windows' ? ' <span style="color:#a78bfa">[default]</span>' : '';
+      const hint = v.health && v.health.detected ? ' · '+v.health.detected : (v.transport? ' · '+v.transport : '');
+      return `<li>${k} — ${health}${isDefault} <span style="color:#6b7280">${hint}</span></li>`;
+    }).join('');
+    $('devicesList').innerHTML = rows || '<li>(none)</li>';
+    // available devices + health line
+    const avail = tg.available||{};
+    const line = Object.entries(avail).map(([k,v])=>`${k}:${v.online?'✓':'✗'}`).join('  ');
+    $('devicesList').insertAdjacentHTML('beforeend', `<li style="color:#6b7280">available → ${line} · default: ${tg.default_device||'windows'}</li>`);
   }catch(e){}
 }
 async function refreshRegistry(){

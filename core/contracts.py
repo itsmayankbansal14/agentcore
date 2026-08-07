@@ -99,6 +99,7 @@ class ToolResult:
 # ---------------------------------------------------------------------------
 class EventType(str, Enum):
     USER_MESSAGE_RECEIVED = "user_message_received"
+    TARGET_RESOLVED = "target_resolved"
     MESSAGE_ADDED = "message_added"
     PLAN_CREATED = "plan_created"
     PLAN_FAILED = "plan_failed"

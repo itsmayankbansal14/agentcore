@@ -1,0 +1,199 @@
+"""AgentCore — planning/target_resolver.py
+Target Resolution (before planning).
+
+Pipeline:  User Goal → Intent Analysis → TargetResolver → Planner → Executor → Observer
+
+The TargetResolver answers ONE question: which device should execute this goal?
+  - Intent analysis reads the user's words for an explicit target (phone /
+    android / mobile / browser / windows / laptop / this pc).
+  - Default execution policy: if the user did NOT specify a target, default to
+    Windows. Android is only chosen when the user explicitly says phone/android/
+    mobile OR Windows cannot satisfy the capability.
+  - The Planner NEVER queries Android directly — it requests capabilities
+    ("open_youtube", "todo_add", …) and the DeviceManager selects which device
+    satisfies them.
+
+The resolver also handles: multi-device (ask once, remember for the session)
+and offline fallback (Android offline → fall back to Windows when the
+capability exists there; otherwise explain + offer to wait).
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from typing import Any
+
+import structlog
+
+log = structlog.get_logger("agentcore.target")
+
+
+@dataclass
+class TargetDecision:
+    device: str                  # resolved device: "windows" | "android" | "browser"
+    explicit: bool               # user named the target explicitly
+    reason: str
+    alternative: str | None = None   # fallback device if the primary is offline
+    ask_user: bool = False           # multiple candidates → ask once
+    candidates: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {"device": self.device, "explicit": self.explicit,
+                "reason": self.reason, "alternative": self.alternative,
+                "ask_user": self.ask_user, "candidates": self.candidates}
+
+
+# ---------------------------------------------------------------------------
+# intent analysis
+# ---------------------------------------------------------------------------
+# explicit target markers in the user's words (strong → weak)
+_EXPLICIT = [
+    (re.compile(r"\b(on|via|using|through|in)\s+my\s+(phone|android|mobile|device)\b", re.I), "android"),
+    (re.compile(r"\b(phone|android|mobile)\b", re.I), "android"),
+    (re.compile(r"\b(on|in|via|using)\s+(the\s+)?(browser|chrome|firefox|edge)\b", re.I), "browser"),
+    (re.compile(r"\b(browser|chrome|firefox|edge)\b", re.I), "browser"),
+    (re.compile(r"\b(on|via|in|using)\s+(the\s+)?(windows|laptop|pc|computer|desktop|this\s+pc)\b", re.I), "windows"),
+    (re.compile(r"\b(windows|laptop|pc|desktop)\b", re.I), "windows"),
+]
+
+# capability → which device families can satisfy it
+_CAPABILITY_DEVICES = {
+    # windows can do: filesystem, processes, reminders/life, most generic
+    "generic": ["windows"],
+    "life.todos": ["windows"],
+    "life.habits": ["windows"],
+    "life.expenses": ["windows"],
+    "knowledge": ["windows"],
+    "workflow.filesystem": ["windows"],
+    # browser is a windows-hosted capability
+    "workflow.browser": ["windows"],       # browser runs on the windows host
+    "browser": ["windows"],
+    # android-only capabilities
+    "device.android": ["android"],
+    "workflow.android": ["android"],
+}
+
+# which capabilities a device exposes (for capability→device resolution)
+_DEVICE_CAPABILITIES = {
+    "windows": {"generic", "life.todos", "life.habits", "life.expenses",
+                "knowledge", "workflow.filesystem", "workflow.browser"},
+    "android": {"device.android", "workflow.android"},
+    "browser": {"workflow.browser"},
+}
+
+
+class IntentAnalyzer:
+    def explicit_target(self, goal: str) -> tuple[str | None, bool]:
+        """Return (device, explicit) — the device the user named, if any."""
+        for pattern, device in _EXPLICIT:
+            if pattern.search(goal):
+                return device, True
+        return None, False
+
+
+class TargetResolver:
+    def __init__(self, device_manager) -> None:
+        self.devices = device_manager
+        self._session_pref: dict[str, str] = {}   # session_id -> remembered device
+
+    # -- device manager facade (never queried directly by the planner) ------
+    def available_devices(self) -> dict[str, dict]:
+        """Report device health (the dashboard + resolver use this)."""
+        out = {}
+        for name in ("windows", "android", "browser"):
+            dev = self.devices.get(name)
+            h = dev.health() if dev else {"online": False}
+            caps = dev.capabilities() if dev else []
+            out[name] = {"online": h.get("online", False), "health": h,
+                         "capabilities": caps}
+        return out
+
+    def devices_for_capability(self, capability: str) -> list[str]:
+        """Which devices can satisfy a capability (via DeviceManager, not direct
+        android queries)."""
+        wanted = _CAPABILITY_DEVICES.get(capability, _CAPABILITY_DEVICES["generic"])
+        online = []
+        for d in wanted:
+            dev = self.devices.get(d)
+            if dev is not None and dev.health().get("online", False):
+                online.append(d)
+        # windows host is always "online" (it's this process)
+        if "windows" in wanted:
+            online.append("windows")
+        return list(dict.fromkeys(online))
+
+    # -- resolution ----------------------------------------------------------
+    def resolve(self, goal: str, capability: str, session_id: str) -> TargetDecision:
+        """Decide the execution target for a goal/capability.
+
+        Priority:
+          1. explicit user target (phone/android/mobile → android; browser → browser;
+             windows/laptop → windows)
+          2. remembered session preference (multi-device "ask once")
+          3. default policy: Windows, unless the capability is android-only
+          4. offline fallback: android offline + capability exists on windows →
+             fall back to windows; otherwise explain
+        """
+        analyzer = IntentAnalyzer()
+        explicit, is_explicit = analyzer.explicit_target(goal)
+
+        # 1) explicit target
+        if explicit is not None:
+            return self._select(explicit, goal, capability, session_id, explicit=True)
+
+        # 2) remembered preference for this session
+        if session_id in self._session_pref:
+            return self._select(self._session_pref[session_id], goal, capability,
+                                session_id, explicit=False, remembered=True)
+
+        # 3) capability-only target (android-only capabilities)
+        cap_devices = _CAPABILITY_DEVICES.get(capability, _CAPABILITY_DEVICES["generic"])
+        android_only = cap_devices == ["android"]
+
+        if android_only:
+            # user didn't say phone, but ONLY android can do it → android
+            return self._select("android", goal, capability, session_id,
+                                explicit=False, reason="capability is android-only")
+
+        # 4) default: windows (generic / browser capabilities)
+        return self._select("windows", goal, capability, session_id,
+                            explicit=False, reason="default execution policy (windows)")
+
+    def _select(self, device: str, goal: str, capability: str, session_id: str,
+                explicit: bool = False, remembered: bool = False,
+                reason: str = "") -> TargetDecision:
+        # offline fallback
+        if device == "android" and not self.devices.get("android").health().get("online"):
+            self._session_pref[session_id] = "android"   # intended target remembered
+            if capability in _DEVICE_CAPABILITIES["windows"] or capability == "generic":
+                log.info("android offline -> fallback to windows", goal=goal[:60],
+                         capability=capability, session=session_id)
+                return TargetDecision(device="windows", explicit=explicit,
+                                      reason="android offline; capability exists on windows — fell back to windows",
+                                      alternative="android")
+            return TargetDecision(device="android", explicit=explicit,
+                                  reason="android offline; capability is android-only — cannot execute on windows",
+                                  alternative=None)
+        if device == "browser" and not self.devices.get("browser").health().get("online"):
+            # browser is a windows-hosted runtime; fall back to windows (browser on host)
+            return TargetDecision(device="windows", explicit=explicit,
+                                  reason="browser runtime unavailable; using windows host",
+                                  alternative="browser")
+        if not reason:
+            reason = ("explicit user target" if explicit
+                      else ("remembered preference for this session" if remembered
+                            else "default execution policy (windows)"))
+        # remember the INTENDED device for the session (ask-once / preference),
+        # even when the resolver falls back to an offline alternative
+        if explicit or (device == "android" and session_id not in self._session_pref):
+            self._session_pref[session_id] = device
+        return TargetDecision(device=device, explicit=explicit, reason=reason,
+                              alternative=(self._session_pref.get(session_id)
+                                            if device != self._session_pref.get(session_id)
+                                            else None))
+
+    def remember(self, session_id: str, device: str) -> None:
+        self._session_pref[session_id] = device
+
+    def forget(self, session_id: str) -> None:
+        self._session_pref.pop(session_id, None)

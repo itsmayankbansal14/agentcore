@@ -76,7 +76,8 @@ class Executor:
     # ------------------------------------------------------------------ main entry
     async def run_step(self, session_id: str, plan, step, goal_text: str,
                        system_prompt_builder, plan_id: str | None = None,
-                       plan_completer=None, next_step_provider=None) -> StepOutcome:
+                       plan_completer=None, next_step_provider=None,
+                       target_device: str = "windows") -> StepOutcome:
         """Execute one plan step through the agent loop with policy enforcement.
         system_prompt_builder(session_id, plan) -> str  (orchestrator provides it)
         plan_completer(plan_id) / next_step_provider(plan) -> callbacks for lifecycle
@@ -86,7 +87,8 @@ class Executor:
         outcome = StepOutcome(step_id=step.id, status=StepStatus.RUNNING.value)
         self.memory.update_working(session_id, task=goal_text,
                                    plan_id=plan_id or (plan.id if plan else None),
-                                   step_id=step.id, state={"phase": "executing"})
+                                   step_id=step.id, state={"phase": "executing",
+                                                           "target_device": target_device})
         if self.bus is not None:
             self.bus.emit(EventType.STEP_STARTED,
                           {"step": step.id, "title": step.title,
@@ -113,7 +115,7 @@ class Executor:
             try:
                 result = await asyncio.wait_for(
                     self._loop_once(session_id, plan, step, goal_text,
-                                    system_prompt_builder, budget),
+                                    system_prompt_builder, budget, target_device),
                     timeout=self.policy.step_timeout_s)
             except asyncio.CancelledError:
                 self._set_step(step, StepStatus.CANCELLED, budget, t0, outcome, exec_id)
@@ -185,7 +187,8 @@ class Executor:
 
     # ------------------------------------------------------------------ the loop
     async def _loop_once(self, session_id, plan, step, goal_text,
-                         system_prompt_builder, budget: BudgetTracker) -> dict:
+                         system_prompt_builder, budget: BudgetTracker,
+                         target_device: str = "windows") -> dict:
         budget.steps_taken += 1
         ctx = await self.memory.load_context(session_id, user_message=goal_text)
         messages: list[LLMMessage] = [
@@ -215,7 +218,8 @@ class Executor:
                         "observations": observations}
 
             for tc in resp.tool_calls:
-                result = await self._dispatch_tool(session_id, step.id, tc)
+                result = await self._dispatch_tool(session_id, step.id, tc,
+                                                   target_device=target_device)
                 tool_calls_record.append({"name": tc.name, "args": tc.arguments,
                                           "ok": result.ok, "error": result.error,
                                           "ms": result.duration_ms})
@@ -264,7 +268,7 @@ class Executor:
 
     # ------------------------------------------------------------------ tool dispatch
     async def _dispatch_tool(self, session_id: str, step_id: str | None,
-                             tc: ToolCall) -> ToolResult:
+                             tc: ToolCall, target_device: str = "windows") -> ToolResult:
         t0 = time.time()
         self.monitor.mark_start(tc.name)
         if self.bus is not None:
@@ -281,7 +285,8 @@ class Executor:
         # SELF-HEALING: recoverable failures go through RecoveryPolicy
         # (repair -> retry -> observer verification) up to the policy's cap.
         tool_ctx = {"session_id": session_id, "confirm": True,
-                    "devices": self.devices, "workspace": self.workspace}
+                    "devices": self.devices, "workspace": self.workspace,
+                    "target_device": target_device}
         result = await self._execute_with_recovery(tc, tool_ctx, session_id)
         # failure classification + recovery suggestions (requirements 4 & 5)
         failure_info = None

@@ -250,6 +250,25 @@ def create_app(agent: AgentApp | None = None, template: Path | None = None) -> F
             out[d.name] = {**h, "capabilities": d.capabilities()}
         return out
 
+    @app.get("/api/targets")
+    async def targets(session_id: str = "web") -> dict:
+        """Target resolution state: available devices, health, default device,
+        session preference, and the last resolved target."""
+        tr = agent_app.target_resolver
+        avail = tr.available_devices()
+        last = None
+        # find the last TARGET_RESOLVED event for this session
+        for e in reversed(agent_app.bus.recent(session_id=session_id, n=200)):
+            if e.type.value == "target_resolved":
+                last = e.payload
+                break
+        return {
+            "available": avail,
+            "default_device": "windows",
+            "session_preference": tr._session_pref.get(session_id),
+            "last_resolved": last,
+        }
+
     @app.post("/api/devices/pair")
     async def devices_pair() -> dict:
         """Start pairing: returns a one-time 6-digit code the phone app uses."""

@@ -32,7 +32,10 @@ class Device(ABC):
 
 
 class DeviceManager:
-    """Registry of devices; command fan-out; online/offline tracking."""
+    """Registry of devices; command fan-out; online/offline tracking.
+    Responsible for DETECTING connected devices (windows host, adb, browser
+    runtime) and REPORTING their health. The Planner never queries Android
+    directly — it requests capabilities; the DeviceManager selects devices."""
 
     def __init__(self) -> None:
         self._devices: dict[str, Device] = {}
@@ -48,6 +51,36 @@ class DeviceManager:
 
     def online(self) -> list[Device]:
         return [d for d in self._devices.values() if d.health().get("online", False)]
+
+    # -- detection -----------------------------------------------------------
+    def detect(self) -> dict[str, dict]:
+        """Probe and report every device's health (windows host, adb, browser)."""
+        report = {}
+        for name in ("windows", "android", "adb", "browser"):
+            dev = self._devices.get(name)
+            if dev is None:
+                report[name] = {"online": False, "reason": "not registered"}
+                continue
+            try:
+                report[name] = dev.health()
+            except Exception as e:  # noqa: BLE001
+                report[name] = {"online": False, "reason": str(e)[:80]}
+        # adb: re-probe the transport for real device detection
+        adb = self._devices.get("adb")
+        if adb is not None:
+            adb.connect()   # real TCP probe — updates online honestly
+            report["adb"] = adb.health()
+        return report
+
+    def device_health(self) -> dict[str, dict]:
+        """Aggregated health for the dashboard (stable shape)."""
+        base = self.detect()
+        out = {}
+        for name, h in base.items():
+            out[name] = {"online": bool(h.get("online")), "health": h,
+                         "capabilities": (self._devices[name].capabilities()
+                                          if name in self._devices else [])}
+        return out
 
     async def execute(self, device_name: str, command: str,
                       params: dict[str, Any]) -> ToolResult:

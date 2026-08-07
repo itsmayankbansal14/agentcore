@@ -3,10 +3,9 @@
 Windows laptop = controller · Android phone = thin remote executor.
 LLM **only reasons**; tools act; SQLite remembers; the **task loop** is the center.
 
-> Test status: **230 checks passing** (47 arch + 37 core + 34 api + 12 android +
-> 19 vertical-slice + 37 reliability + **36 pytest integration** incl. 4 real
-> capability workflows + 7 self-healing) · coverage 59.8% on the integration
-> suite alone. across 4 suites:
+> Test status: **239 checks passing** (47 arch + 37 core + 34 api + 12 android +
+> 19 vertical-slice + 37 reliability + **45 pytest integration** incl. capability
+> workflows, self-healing and target resolution) · coverage ~60%. across 4 suites:
 > `tests/test_architecture.py` (47) · `tests/smoke.py` (37) · `tests/test_api.py` (13) ·
 > `scripts/test_live.py` (8, against real OpenRouter).
 
@@ -302,6 +301,29 @@ Tool → RecoveryPolicy.is_recoverable → Repair (init storage / reconnect devi
 python -m pytest tests/integration/test_self_healing.py -m integration -v
 # dashboard: Tool monitor shows health + recovery attempts/success;
 # /api/tools/health lists BROKEN tools with install hints
+```
+
+## Target Resolution (before planning)
+
+```
+User Goal → Intent Analysis → TargetResolver → Planner → Executor → Observer
+```
+
+- **Default policy**: no explicit target → **Windows**. Android is only chosen
+  when the user says phone/android/mobile OR the capability is android-only.
+- **DeviceManager** detects the windows host, ADB devices, and the browser
+  runtime; reports health. The **planner never queries Android directly** — it
+  requests capabilities; DeviceManager selects the device.
+- **Multi-device**: asks once, remembers the preference for the session.
+- **Offline handling**: Android offline → falls back to Windows when the
+  capability exists there; otherwise explains why Android can't execute.
+- Dashboard shows: current execution target, current device, available
+  devices + health, default device (`/api/targets`, `/api/status`).
+
+```bash
+python -m pytest tests/integration/test_target_resolution.py -m integration -v
+# "set reminder" -> windows · "on my phone" -> android (fallback if offline)
+# "open youtube" -> browser on windows · "on my phone" -> android
 ```
 
 ## Architecture decisions (why)

@@ -26,6 +26,7 @@ from tools.health import ToolHealthManager
 from database.connection import Database
 from devices.adb import ADBDevice
 from devices.android import AndroidDevice
+from devices.browser import BrowserDevice
 from devices.base import DeviceManager
 from devices.windows import WindowsDevice
 from executor.executor import Executor
@@ -116,6 +117,9 @@ class AgentApp:
         win = WindowsDevice(registry)
         win.connect()
         devices.register(win)
+        browser_dev = BrowserDevice()
+        browser_dev.connect()
+        devices.register(browser_dev)
         android = AndroidDevice(fingerprint="unpaired", db=db)
         devices.register(android)
         # REAL ADB transport (vertical slice): adb-shell over TCP (adb connect host:5555)
@@ -124,6 +128,10 @@ class AgentApp:
         adb = ADBDevice(host=adb_host, port=adb_port)
         devices.register(adb)
         wf_android.register_all(registry, adb)
+
+        # Target Resolution (before planning): intent → device selection
+        from planning.target_resolver import TargetResolver
+        target_resolver = TargetResolver(devices)
         register_android_tools(registry, devices)
 
         # vision verifier (LLM vision -> OCR -> pixel diff), real engines
@@ -163,7 +171,8 @@ class AgentApp:
                           "db": db, "memory": memory, "devices": devices})
 
         orchestrator = AgentOrchestrator(config, bus, db, memory, llm, registry,
-                                         planner, devices, executor, observers, permissions)
+                                         planner, devices, executor, observers,
+                                         permissions, target_resolver=target_resolver)
         app = cls(config, db, bus, memory, llm, registry, planner, devices,
                   orchestrator, executor, observers, permissions, reasoner)
         app.plugins = plugins
@@ -173,6 +182,7 @@ class AgentApp:
         app.recovery = recovery_policy
         app.tool_health = ToolHealthManager()
         app.tool_health.scan(registry, devices)
+        app.target_resolver = target_resolver
 
         if seed_demo:
             seed_demo_memory(memory)

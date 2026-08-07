@@ -44,7 +44,8 @@ class AgentOrchestrator:
     def __init__(self, config: ConfigManager, bus: EventBus, db,
                  memory: MemoryManager, llm: LLMManager, registry: ToolRegistry,
                  planner: Planner, devices: DeviceManager, executor: Executor,
-                 observers: ObserverManager, permissions: PermissionManager) -> None:
+                 observers: ObserverManager, permissions: PermissionManager,
+                 target_resolver=None) -> None:
         self.cfg = config
         self.bus = bus
         self.db = db
@@ -56,6 +57,7 @@ class AgentOrchestrator:
         self.executor = executor
         self.observers = observers
         self.permissions = permissions
+        self.target_resolver = target_resolver
 
         # event wiring — the orchestrator coordinates by reacting
         bus.subscribe(EventType.TOOL_RESULT, self._on_tool_result)
@@ -94,6 +96,16 @@ class AgentOrchestrator:
         if stored:
             log.debug("facts stored from message", count=stored)
 
+        # TARGET RESOLUTION (before planning): decide the execution device
+        target = None
+        if self.target_resolver is not None:
+            capability = self._capability_for(text)
+            target = self.target_resolver.resolve(text, capability, session_id)
+            self.bus.emit(EventType.TARGET_RESOLVED,
+                          target.to_dict(), session_id=session_id)
+            log.info("target resolved", device=target.device, goal=text[:60],
+                     session=session_id)
+
         try:
             plan, step = await self.planner.get_or_create(session_id, text)
         except Exception as e:  # noqa: BLE001 — planner failure classification
@@ -120,8 +132,26 @@ class AgentOrchestrator:
             plan_id=plan.id,
             plan_completer=self.planner.mark_plan_completed,
             next_step_provider=self.planner.next_step,
+            target_device=target.device if target else "windows",
         )
         return self._outcome_to_text(outcome)
+
+    def _capability_for(self, text: str) -> str:
+        """Infer the capability family from the goal (used by Target Resolution).
+        The planner still reasons about capabilities — never about devices."""
+        low = text.lower()
+        if any(k in low for k in ("phone", "android", "mobile", "whatsapp",
+                                  "notification", "youtube on my", "sms")):
+            return "device.android"
+        if any(k in low for k in ("browser", "chrome", "firefox", "edge", "web",
+                                  "website", "http", "url")):
+            return "workflow.browser"
+        if any(k in low for k in ("remind", "todo", "task", "habit", "expense")):
+            return "life.todos"
+        if any(k in low for k in ("folder", "file", "write", "read", "create a",
+                                  "delete", "notes")):
+            return "workflow.filesystem"
+        return "generic"
 
     # ------------------------------------------------------------------ outcome → text
     def _outcome_to_text(self, outcome: StepOutcome) -> str:
