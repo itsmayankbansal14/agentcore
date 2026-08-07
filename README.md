@@ -3,9 +3,9 @@
 Windows laptop = controller · Android phone = thin remote executor.
 LLM **only reasons**; tools act; SQLite remembers; the **task loop** is the center.
 
-> Test status: **219 checks passing** (47 arch + 37 core + 34 api + 12 android +
-> 19 vertical-slice + 37 reliability + **25 pytest integration**) · coverage 55.5%
-> on the integration suite alone (40% floor enforced). across 4 suites:
+> Test status: **223 checks passing** (47 arch + 37 core + 34 api + 12 android +
+> 19 vertical-slice + 37 reliability + **29 pytest integration incl. 4 real
+> capability workflows**) · coverage 58.5% on the integration suite alone. across 4 suites:
 > `tests/test_architecture.py` (47) · `tests/smoke.py` (37) · `tests/test_api.py` (13) ·
 > `scripts/test_live.py` (8, against real OpenRouter).
 
@@ -242,11 +242,34 @@ python -m pytest --cov --cov-config=.coveragerc \
 | Database recovery | `tests/integration/test_database_recovery.py` |
 | Permission system | `tests/integration/test_permissions.py` |
 | API provider switching | `tests/integration/test_provider_switching.py` |
+| Capability workflows (Windows/Browser/Filesystem/Android) | `tests/integration/test_capabilities.py` |
 
 Shared fixtures (`conftest.py`): a fresh **real** AgentApp runtime per test
 (real Planner/Executor/Tools/Observer/Memory/SQLite) with only the external
 LLM pinned to a deterministic mock. Coverage config in `.coveragerc`
 (branch coverage, `fail_under=40`).
+
+## Capability validation (real-world workflows)
+
+Four complete workflows run through the FULL real pipeline
+(Planner → Executor → PermissionManager → Tool Registry → Tool → Observer →
+Memory → Execution History) with **no mocks**:
+
+| Workflow | Real implementation | Sandbox proof |
+|---|---|---|
+| **Filesystem** create folder → file → write → read → verify integrity → delete | real sandboxed FS | ✅ full run, observer-verified |
+| **Browser** open → navigate → wait → verify URL → screenshot | Playwright + real Chromium | ✅ full run, screenshot captured, URL verified |
+| **Windows** launch → detect open → focus → close → verify closed | real OS processes (os.startfile on Win; Popen elsewhere) | ✅ process launched/closed; focus honest (needs a display) |
+| **Android** wake → unlock → launch YouTube → wait → screenshot → verify/retry | real ADB commands | honest offline result here; full run on a real device |
+
+```bash
+python scripts/capability_demo.py          # run all four live
+python scripts/capability_demo.py browser  # one workflow
+python -m pytest tests/integration/test_capabilities.py -m integration -v
+```
+
+The dashboard shows each workflow live: goal, plan, current step, running
+tool, observer verification, retries, timeline, final result.
 
 ## Architecture decisions (why)
 

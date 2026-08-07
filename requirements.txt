@@ -16,3 +16,5 @@ pillow>=10
 watchfiles>=0.21
 adb-shell>=0.4.4
 rapidocr-onnxruntime>=1.3
+playwright>=1.44
+psutil>=5.9

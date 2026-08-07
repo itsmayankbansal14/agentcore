@@ -201,6 +201,7 @@ def check_integration(report: Report) -> None:
         "database": "test_database_recovery.py",
         "permission": "test_permissions.py",
         "provider": "test_provider_switching.py",
+        "capabilities": "test_capabilities.py",   # Windows/Browser/Filesystem/Android workflows
     }
     missing = []
     for area, fname in required.items():

@@ -36,6 +36,10 @@ from reasoning.local_human import HumanReasoner, LocalReasoner
 from reasoning.llm import LLMReasoner
 from tools.local import echo as echo_tools
 from tools.local import filesystem as fs_tools
+from tools.workflows import browser_workflow as wf_browser
+from tools.workflows import fs_workflow as wf_fs
+from tools.workflows import windows_workflow as wf_windows
+from tools.workflows import android_workflow as wf_android
 from tools.local import knowledge as knowledge_tools
 from tools.local import life as life_tools
 from tools.android_tools import register_all as register_android_tools
@@ -91,6 +95,10 @@ class AgentApp:
         fs_tools.register_all(registry, str(sandbox))
         knowledge_tools.register_all(registry, memory)
         life_tools.register_all(registry, db)
+        # capability workflows (real implementations)
+        wf_fs.register_all(registry, sandbox)
+        wf_windows.register_all(registry)
+        wf_browser.register_all(registry, config.data_dir / "screenshots")
 
         # permissions (confirmation hook is CLI/UI-provided)
         permissions = PermissionManager(config)
@@ -107,6 +115,7 @@ class AgentApp:
         adb_port = config.get_int("devices.adb_port", 5555)
         adb = ADBDevice(host=adb_host, port=adb_port)
         devices.register(adb)
+        wf_android.register_all(registry, adb)
         register_android_tools(registry, devices)
 
         # vision verifier (LLM vision -> OCR -> pixel diff), real engines

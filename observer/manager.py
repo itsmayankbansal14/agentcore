@@ -8,6 +8,7 @@ from observer.base import Observation, Observer
 from observer.observers import (AndroidObserver, ClipboardObserver,
                                 FilesystemObserver, NetworkObserver,
                                 ScreenObserver, SystemObserver, TimeObserver)
+from observer.workflow_observers import register_workflow_observers
 
 
 class ObserverManager:
@@ -71,4 +72,5 @@ def default_observers(sandbox_root: str | None = None, android_device=None,
     mgr.register(SystemObserver())
     mgr.register(AndroidObserver(android_device or adb_device))
     mgr.register(ScreenObserver(adb_device, verifier))
+    register_workflow_observers(mgr, sandbox_root or "./data/sandbox")
     return mgr
