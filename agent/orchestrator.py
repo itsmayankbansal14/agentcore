@@ -148,6 +148,8 @@ class AgentOrchestrator:
             return "workflow.browser"
         if any(k in low for k in ("remind", "todo", "task", "habit", "expense")):
             return "life.todos"
+        if any(k in low for k in ("clipboard", "copy ", "paste")):
+            return "clipboard"
         if any(k in low for k in ("folder", "file", "write", "read", "create a",
                                   "delete", "notes")):
             return "workflow.filesystem"

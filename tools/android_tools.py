@@ -58,10 +58,16 @@ class OpenUrlTool(_AndroidTool):
 
 class OpenYoutubeTool(_AndroidTool):
     name = "android_open_youtube"
-    description = "Search YouTube on the phone (youtube:// intent)."
+    description = ("Open YouTube on the phone (youtube:// intent); "
+                   "optional search query.")
     parameters = {"type": "object", "properties": {"query": {"type": "string"}},
-                  "required": ["query"]}
+                  "required": []}
     cmd_name = "device.android.open_youtube"
+
+    async def execute(self, params: dict, ctx: dict) -> ToolResult:
+        params = dict(params or {})
+        params.setdefault("query", "")
+        return await super().execute(params, ctx)
 
 
 class OpenWhatsappTool(_AndroidTool):

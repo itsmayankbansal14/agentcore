@@ -36,11 +36,19 @@ initializes the database — then starts. You never do this manually.
 **Try saying:**
 ```
 what time is it?
+weather in Jaipur
 add todo finish DSA high priority
+copy hello world to clipboard
+open youtube
 open the browser to example.com and screenshot it
 create a folder with a file, write, verify and delete it
 open youtube on my phone        (requires Android setup)
 ```
+
+> **Deterministic answers need no AI.** Single-intent requests
+> (time, weather, todo, clipboard, open-youtube) are answered directly by
+> their tools — the LLM is never invoked for them, so they work offline and
+> never hallucinate.
 
 ---
 
@@ -49,23 +57,25 @@ open youtube on my phone        (requires Android setup)
 `python main.py doctor` prints a full readiness report:
 
 ```
-✓ python       READY     3.13
-✓ venv         READY     deps present
-✓ dependencies READY     all packages present
-✓ playwright   READY     chromium launches
-✓ adb          READY     adb transport available
-✓ sqlite       READY     WAL supported
-✓ openrouter   READY     API key configured
-✓ browser      READY     chromium runtime
-✓ filesystem   READY     workspace writable
-✓ tools        49 tools registered
-✓ devices      windows=on, browser=on, android=off, adb=off
-✓ dashboard    served at localhost:8000
+✓ python       READY      3.13
+✓ venv         READY      deps present (bootstrapped)
+✓ dependencies READY      all packages present
+✓ playwright   READY      (optional) chromium installed (marker)
+✓ adb          READY      (optional) adb transport available
+✓ sqlite       READY      WAL supported
+✓ openrouter   READY      API key configured
+✓ browser      READY      (optional) chromium launches
+✓ filesystem   READY      workspace writable
+✓ tools          51 tools registered
+✓ devices        windows=on, browser=on, android=off, adb=off
+✓ dashboard      served at localhost:8000 (python main.py)
 READY ✅
 ```
 
 If anything is NOT READY, the report shows the exact fix (e.g.
 `fix: pip install playwright && python -m playwright install chromium`).
+The `browser` line runs a **real Chromium launch probe** — it never reports
+READY when the browser cannot actually start (e.g. missing system libs).
 
 ---
 
@@ -86,6 +96,8 @@ If anything is NOT READY, the report shows the exact fix (e.g.
 
 - **Life admin** — todos, habits, expenses (SQLite, self-healing storage)
 - **Filesystem** — create/write/read/verify/delete files in a sandbox
+- **Weather** — real current weather for any city (Open-Meteo, no API key)
+- **Clipboard** — set/get the desktop clipboard
 - **Browser** — open, navigate, verify URL, screenshot (real Chromium)
 - **Windows** — launch apps, detect/focus/close processes
 - **Android** — wake, unlock, open apps/YouTube, notifications, screenshots,

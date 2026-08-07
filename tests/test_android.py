@@ -146,6 +146,8 @@ async def main() -> None:
     server_task = asyncio.create_task(phone.serve({
         "device.android.open_app": {"ok": True, "data": {"opened": "whatsapp",
                                                          "package": "com.whatsapp"}},
+        "device.android.open_youtube": {"ok": True, "data": {"opened": "youtube",
+                                                             "package": "com.google.android.youtube"}},
         "device.android.read_notifications": {"ok": True, "data": {"notifications": [
             {"app": "WhatsApp", "title": "hi"}]}},
         "device.android.screenshot": {"ok": False, "error": "user denied screen capture"},
@@ -179,19 +181,17 @@ async def main() -> None:
     # device should still be online (no hang)
     check("still responsive after sequence", dev.health()["online"])
 
-    # ---- agent loop integration (mock LLM calls the tool) ----
-    from llm.providers import MockProvider
-    prov = MockProvider()
-    app.llm._factory = lambda n, k, m: prov
-    prov.enqueue('[TOOL android_open_app {"app":"youtube"}]', 'Opened YouTube on the phone.')
+    # ---- agent loop integration: "open youtube on phone" is a DETERMINISTIC
+    # intent — the direct path must route it to android_open_youtube WITHOUT
+    # the LLM, and the real phone must report the execution. ----
     out = await app.orchestrator.handle_user_message("andtest", "open youtube on phone")
-    check("agent loop dispatches to phone", "opened" in out.lower() or "youtube" in out.lower(),
-          out[:120])
+    check("agent loop dispatches to phone (no LLM)",
+          "youtube" in out.lower(), out[:140])
     from database.models import ToolExecution
     from sqlalchemy import text
     with app.db.engine.connect() as c:
         row = c.execute(text("SELECT status FROM tool_executions "
-                             "WHERE tool='android_open_app' ORDER BY id DESC LIMIT 1")).fetchone()
+                             "WHERE tool='android_open_youtube' ORDER BY id DESC LIMIT 1")).fetchone()
     check("tool execution recorded as ok", row and row[0] == "ok", str(row))
 
     stop.set()

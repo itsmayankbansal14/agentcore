@@ -51,7 +51,12 @@ async def test_conversation_and_tool_loop() -> None:
         from database.models import ToolExecution
         rows = s.query(ToolExecution).filter(ToolExecution.tool == "time_now").all()
         check("time_now executed and recorded", len(rows) >= 1, f"rows={len(rows)}")
-    check("answer mentions time", "time" in out.lower() or "mock" in out.lower())
+    # the direct path answers from TimeTool (real time string), so accept a
+    # time pattern OR the legacy mock/LLM wording
+    import re as _re
+    check("answer mentions time",
+          "time" in out.lower() or "mock" in out.lower()
+          or bool(_re.search(r"\d{1,2}:\d{2}\s*(AM|PM)?", out)))
 
 
 async def test_router_failover() -> None:

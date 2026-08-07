@@ -1,0 +1,169 @@
+"""AgentCore — planning/direct.py
+Deterministic fast-path router.
+
+Single-intent requests (time, weather, todo, clipboard, open-youtube) are
+answered by their REAL tool directly — the LLM is never consulted to pick
+tools or to phrase the answer for these. The Executor consults this router
+BEFORE its LLM loop; a match means a real tool produced the result.
+
+Design constraints:
+  * additive seam — Planner/Executor/Registry are untouched structurally
+  * conservative matching — ambiguous goals return None → LLM path
+  * target_device matters: "open youtube" → browser (windows), but
+    "open youtube on my phone" → android_open_youtube
+"""
+from __future__ import annotations
+
+import re
+from typing import Any
+
+YOUTUBE_URL = "https://www.youtube.com"
+
+# multi-intent markers → the direct path must NEVER swallow these; they need
+# real planning/LLM (mirrors the Planner's complexity detection)
+_COMPLEX = re.compile(
+    r"\b(then|next|after that|finally|and then|and|plus|also|with)\b|[,;]", re.I)
+
+
+class DirectToolRouter:
+    """Maps an unambiguous single-intent goal → ordered tool calls.
+
+    Returns None when the goal is chat-like, multi-intent, or ambiguous —
+    in that case the normal LLM loop runs unchanged.
+    """
+
+    def route(self, goal: str, target_device: str = "windows",
+              ) -> list[tuple[str, dict[str, Any]]] | None:
+        low = " ".join((goal or "").lower().split())
+        if not low:
+            return None
+        # single-intent only: multi-command goals go through the planner/LLM
+        if _COMPLEX.search(low):
+            return None
+
+        # --- time → TimeTool -------------------------------------------
+        if re.search(r"\b(time|clock|date|day)\b", low) and re.search(
+                r"\b(what|current|now|tell|today)\b|is it", low):
+            return [("time_now", {})]
+
+        # --- weather → WeatherTool -------------------------------------
+        if "weather" in low:
+            city = self._city(low)
+            return [("weather", {"city": city})]
+
+        # --- todo → Todo capability ------------------------------------
+        if low.startswith(("add ", "create ")) and re.search(
+                r"\b(todo|task|reminder)\b", low):
+            return [("todo_add", self._todo_params(low))]
+        if re.search(r"\b(todos?|tasks?|reminders?)\b", low) and re.search(
+                r"\b(list|show|what|get|pending|open)\b", low):
+            return [("todo_list", {})]
+
+        # --- clipboard → Clipboard capability --------------------------
+        if "clipboard" in low or low.startswith("copy ") or low.startswith("paste"):
+            return self._clipboard(low)
+
+        # --- open youtube → browser (windows) / android device ----------
+        if re.search(r"\byoutube\b", low) and re.search(
+                r"\b(open|launch|start)\b", low):
+            # explicit phone target in the goal wins even if the caller did
+            # not run target resolution (e.g. direct run_step calls)
+            wants_android = (target_device == "android" or
+                             re.search(r"\b(phone|android|mobile)\b", low))
+            if wants_android:
+                return [("android_open_youtube", {"query": self._yt_query(low)})]
+            url = YOUTUBE_URL
+            q = self._yt_query(low)
+            if q:
+                from urllib.parse import quote
+                url = "https://www.youtube.com/results?search_query=" + quote(q)
+            return [("browser_open", {}),
+                    ("browser_navigate", {"url": url})]
+
+        return None
+
+    # -- param extraction ------------------------------------------------
+    @staticmethod
+    def _city(low: str) -> str:
+        m = re.search(r"\bweather\s+(?:in|for|at|of)\s+([a-z][a-z .'\-]{1,40})$", low)
+        return m.group(1).strip() if m else ""
+
+    @staticmethod
+    def _todo_params(low: str) -> dict[str, Any]:
+        priority = "medium"
+        for p in ("high", "medium", "low"):
+            if re.search(rf"\b{p}\s+priority\b|\b{p}\b", low) and \
+                    re.search(rf"\b{p}\s+priority\b", low):
+                priority = p
+                break
+        task = re.sub(r"^(add|create|make)\s+", "", low)
+        task = re.sub(r"\b(a|an|the)\s+", " ", task)
+        task = re.sub(r"\b(todos?|tasks?|reminders?)\b", " ", task)
+        task = re.sub(r"\b(to|for|on|my|me)\b", " ", task)
+        task = re.sub(r"\b(high|medium|low)\s+priority\b", " ", task)
+        task = re.sub(r"\s+", " ", task).strip(" .")
+        return {"task": task or low, "priority": priority}
+
+    @staticmethod
+    def _yt_query(low: str) -> str:
+        q = re.sub(r"^(open|launch|start)\s+", "", low)
+        q = re.sub(r"\byoutube\b", " ", q)
+        q = re.sub(r"\b(on|in|via|using|through|from)\s+(?:my\s+)?"
+                   r"(?:[\w'\-]+\s+)?"
+                   r"(phone|android|mobile|browser|laptop|pc|windows|computer|device)\b",
+                   " ", q)
+        q = re.sub(r"\b(the|and|please|can you|just)\b", " ", q)
+        q = re.sub(r"\s+", " ", q).strip(" .")
+        return q
+
+    @staticmethod
+    def _clipboard(low: str) -> list[tuple[str, dict[str, Any]]]:
+        # "copy <something> [to clipboard]" → set
+        m = re.search(r"\bcopy\s+(.+?)(?:\s+to\s+clipboard)?$", low)
+        if m and len(m.group(1).strip()) >= 2:
+            return [("clipboard_set", {"text": m.group(1).strip()})]
+        # "set clipboard to <x>" / "put <x> on clipboard" → set
+        m = re.search(r"\b(?:set|put)\s+(?:the\s+)?clipboard\s+(?:to|with)\s+(.+)$", low)
+        if m:
+            return [("clipboard_set", {"text": m.group(1).strip()})]
+        # "what's on the clipboard" / "paste" / "get clipboard" → get
+        return [("clipboard_get", {})]
+
+
+def describe(tool_name: str, result) -> str:
+    """Natural-language rendering of a direct-path tool result.
+    Kept here so the Executor's fast path needs no LLM for the answer text."""
+    d = result.data or {}
+    if tool_name == "time_now":
+        return f"🕐 It is {d.get('now', 'now')}."
+    if tool_name == "weather":
+        return (f"🌤 Weather in {d.get('city', 'your city')}: {d.get('condition')}, "
+                f"{d.get('temp_c')}°C, wind {d.get('wind_kmh')} km/h "
+                f"(source: {d.get('source', 'open-meteo')}).")
+    if tool_name == "todo_add":
+        return (f"✅ Added todo #{d.get('id')}: “{d.get('task')}” "
+                f"({d.get('priority')} priority).")
+    if tool_name == "todo_list":
+        todos = d.get("todos", [])
+        if not todos:
+            return "📋 No pending todos."
+        lines = [f"{t.get('id')}. {t.get('task')} [{t.get('priority')}]"
+                 for t in todos]
+        return "📋 Todos:\n" + "\n".join("  " + ln for ln in lines)
+    if tool_name == "clipboard_set":
+        return "📋 Copied to clipboard."
+    if tool_name == "clipboard_get":
+        return f"📋 Clipboard: {d.get('text') or '(empty)'}"
+    if tool_name == "browser_open":
+        return "🌐 Browser opened (headless Chromium)."
+    if tool_name == "browser_navigate":
+        url = d.get("url", "")
+        if "youtube.com" in str(url):
+            return f"▶️ Opened YouTube in the browser: {url}"
+        return f"🌐 Navigated to {url}."
+    if tool_name == "browser_verify_url":
+        return (f"✅ URL verified: {d.get('url')}." if result.ok
+                else f"❌ URL check failed: {d}")
+    if tool_name == "android_open_youtube":
+        return "📱 Opened YouTube on your phone."
+    return str(d)

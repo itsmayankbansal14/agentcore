@@ -149,12 +149,14 @@ def _cmd_launcher(port: int = 8000) -> None:
 
 
 def main() -> None:
-    args = sys.argv[1:]
+    raw_args = sys.argv[1:]
+    # strip the fast-dev flag BEFORE dispatch so `--skip-boot <cmd>` still works
+    args = [a for a in raw_args if a != "--skip-boot"]
 
     # SELF-BOOTSTRAP: validate + initialize everything before starting
     # (venv, deps, playwright, workspace, database, doctor). Never blocks
     # on optional components (android/browser). --skip-boot for fast dev.
-    if "--skip-boot" not in args:
+    if "--skip-boot" not in raw_args:
         import bootstrap
         report = bootstrap.run()
         print(bootstrap.render_report(report), flush=True)   # always visible
@@ -226,6 +228,9 @@ def cmd_doctor(app=None) -> int:
     from core.dependencies import DependencyManager
     dm = DependencyManager()
     deps = dm.scan()
+    # honest deep check: browser tools must actually LAUNCH chromium, not just
+    # have the package installed — never report READY when launch fails
+    deps["browser"] = dm.launch_probe_browser().to_dict()
     print("\n  AgentCore — dependency health")
     print("  " + "─" * 56)
     icons = {"READY": "✓", "MISSING": "✗", "BROKEN": "✗", "INSTALLING": "…"}
@@ -234,7 +239,7 @@ def cmd_doctor(app=None) -> int:
         mark = icons.get(d["state"], "?")
         optional = " (optional)" if d.get("optional") else ""
         print(f"  {mark} {name:<12} {d['state']:<10}{optional} {d['detail']}")
-        if d["fix"]:
+        if d["state"] != "READY" and d["fix"]:
             print(f"        fix: {d['fix']}")
         if d["state"] != "READY" and not d.get("optional"):
             required_broken.append(name)

@@ -64,6 +64,7 @@ _CAPABILITY_DEVICES = {
     "life.habits": ["windows"],
     "life.expenses": ["windows"],
     "knowledge": ["windows"],
+    "clipboard": ["windows"],
     "workflow.filesystem": ["windows"],
     # browser is a windows-hosted capability
     "workflow.browser": ["windows"],       # browser runs on the windows host
@@ -76,7 +77,7 @@ _CAPABILITY_DEVICES = {
 # which capabilities a device exposes (for capability→device resolution)
 _DEVICE_CAPABILITIES = {
     "windows": {"generic", "life.todos", "life.habits", "life.expenses",
-                "knowledge", "workflow.filesystem", "workflow.browser"},
+                "knowledge", "clipboard", "workflow.filesystem", "workflow.browser"},
     "android": {"device.android", "workflow.android"},
     "browser": {"workflow.browser"},
 }

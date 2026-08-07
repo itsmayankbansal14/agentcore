@@ -140,6 +140,32 @@ class DependencyManager:
         return DepStatus("browser", "BROKEN", "chromium not installed",
                          "python -m playwright install chromium", optional=True)
 
+    def launch_probe_browser(self, timeout_s: float = 12.0) -> DepStatus:
+        """REAL chromium launch probe — used by `doctor` so a browser tool is
+        never marked READY when the runtime cannot actually launch Chromium.
+        (The fast scan stays marker-based; this is the honest deep check.)"""
+        pw = self._status.get("playwright")
+        if pw is not None and pw.state != "READY":
+            return DepStatus("browser", pw.state, pw.detail, pw.fix, optional=True)
+        try:
+            import asyncio
+            from playwright.async_api import async_playwright
+
+            async def _launch():
+                p = await async_playwright().start()
+                b = await p.chromium.launch(timeout=timeout_s * 1000)
+                await b.close()
+                await p.stop()
+
+            asyncio.run(_launch())
+            return DepStatus("browser", "READY", "chromium launches", "", optional=True)
+        except Exception as e:  # noqa: BLE001
+            return DepStatus("browser", "BROKEN",
+                             f"chromium launch failed: {str(e)[:90]}",
+                             "run `python -m playwright install chromium` "
+                             "(on Linux also install the browser system deps)",
+                             optional=True)
+
     def _probe_venv(self) -> DepStatus:
         import os
         if getattr(sys, "frozen", False):

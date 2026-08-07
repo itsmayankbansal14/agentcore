@@ -1,6 +1,8 @@
 """AgentCore — observer/observers.py
-Concrete observers: filesystem, time, network, clipboard, system, android.
-Screen observer is a stub (MediaProjection comes with the Android companion).
+Concrete observers: filesystem, time, network, clipboard, system, android,
+screen. The ScreenObserver is REAL: after a UI-changing android command it
+captures a real screenshot via ADB (`screencap -p`) and runs the
+VisionVerifier (LLM vision / OCR / pixel-diff) to confirm the target opened.
 """
 from __future__ import annotations
 

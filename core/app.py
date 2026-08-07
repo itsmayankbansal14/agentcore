@@ -39,6 +39,7 @@ from reasoning.base import Reasoner
 from reasoning.local_human import HumanReasoner, LocalReasoner
 from reasoning.llm import LLMReasoner
 from tools.local import echo as echo_tools
+from tools.local import clipboard as clipboard_tools
 from tools.local import filesystem as fs_tools
 from tools.workflows import browser_workflow as wf_browser
 from tools.workflows import fs_workflow as wf_fs
@@ -100,6 +101,7 @@ class AgentApp:
 
         sandbox = workspace.sandbox
         echo_tools.register_all(registry)
+        clipboard_tools.register_all(registry)
         fs_tools.register_all(registry, str(sandbox))
         knowledge_tools.register_all(registry, memory)
         todo_provider = TodoStorageProvider(SQLiteTodoStorage(db))
@@ -159,11 +161,14 @@ class AgentApp:
         from tools.monitor import ToolMonitor
         tool_monitor = ToolMonitor()
         recovery_policy = RecoveryPolicy()
+        from planning.direct import DirectToolRouter
+        direct_router = DirectToolRouter()
         executor = Executor(db, llm, memory, registry, observers, policy,
                            devices=devices, bus=bus, monitor=tool_monitor,
                            recovery=recovery_policy, workspace=workspace,
                            services={"todo_storage_provider": todo_provider,
-                                     "devices": devices, "workspace": workspace})
+                                     "devices": devices, "workspace": workspace},
+                           direct_router=direct_router)
 
         # plugins: auto-discover plugins/ and register their tools (Phase 8)
         plugins = PluginManager(config.root / "plugins")
@@ -178,6 +183,7 @@ class AgentApp:
         app.plugins = plugins
         app.tool_monitor = tool_monitor
         app.workspace = workspace
+        app.direct_router = direct_router
         app.todo_provider = todo_provider
         app.recovery = recovery_policy
         app.tool_health = ToolHealthManager()

@@ -283,7 +283,15 @@ def main() -> int:
     t0 = time.time()
 
     if args.only:
-        stages = [(args.only, None)]
+        _stage_fns = {
+            "verify": stage_verify_pass1,
+            "install": stage_install_deps,
+            "tests": stage_tests,
+            "pyinstaller": stage_pyinstaller,
+            "smoke-exe": stage_smoke_exe,
+            "package": stage_package,
+        }
+        stages = [(args.only, _stage_fns[args.only])]
     else:
         stages = [
             ("verify", stage_verify_pass1),

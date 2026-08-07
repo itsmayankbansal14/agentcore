@@ -22,7 +22,7 @@ from typing import Any
 import structlog
 
 from core.contracts import (ContextBundle, EventType, LLMMessage, Role,
-                            ToolCall, ToolResult)
+                            ToolCall, ToolResult, new_id)
 from core.errors import FailureClass, classify, suggestions_for
 from database.connection import Database
 from database.models import Execution, ToolExecution
@@ -36,6 +36,16 @@ from tools.monitor import ToolMonitor
 from tools.registry import ToolRegistry
 
 log = structlog.get_logger("agentcore.executor")
+
+
+class DirectPathError(RuntimeError):
+    """Raised by the deterministic fast-path when a direct tool call fails.
+    Carries the observations collected before the failure so run_step can
+    surface them (same as the LLM loop's failure path)."""
+
+    def __init__(self, message: str, observations: list[str] | None = None) -> None:
+        super().__init__(message)
+        self.observations = observations or []
 
 
 @dataclass
@@ -58,7 +68,8 @@ class Executor:
                  registry: ToolRegistry, observers: ObserverManager,
                  policy: ExecutionPolicy | None = None, devices=None,
                  bus=None, monitor: ToolMonitor | None = None,
-                 recovery=None, workspace=None, services=None) -> None:
+                 recovery=None, workspace=None, services=None,
+                 direct_router=None) -> None:
         self.db = db
         self.llm = llm
         self.memory = memory
@@ -72,6 +83,9 @@ class Executor:
         self.recovery = recovery or RecoveryPolicy()
         self.workspace = workspace
         self.services = services or {}
+        # deterministic fast-path (planning/direct.py): single-intent goals
+        # (time/weather/todo/clipboard/open-youtube) skip the LLM entirely.
+        self.direct_router = direct_router
 
     # ------------------------------------------------------------------ main entry
     async def run_step(self, session_id: str, plan, step, goal_text: str,
@@ -146,6 +160,10 @@ class Executor:
                 return outcome
             except Exception as e:  # noqa: BLE001
                 outcome.errors.append(str(e))
+                # direct-path failures carry the observations collected before
+                # the failing tool call (screen/device observers etc.)
+                if getattr(e, "observations", None):
+                    outcome.observations.extend(e.observations)
                 attempts += 1
                 if attempts <= self.policy.max_retries:
                     self._set_step(step, StepStatus.RETRYING, budget, t0, outcome, exec_id)
@@ -190,6 +208,17 @@ class Executor:
                          system_prompt_builder, budget: BudgetTracker,
                          target_device: str = "windows") -> dict:
         budget.steps_taken += 1
+
+        # DETERMINISTIC FAST-PATH: unambiguous single-intent goals route
+        # straight to their real tool — the LLM is never consulted for these.
+        # (Target resolution already ran in the orchestrator; only the
+        # tool-selection LLM round-trip is bypassed.)
+        if self.direct_router is not None:
+            calls = self.direct_router.route(goal_text, target_device=target_device)
+            if calls:
+                return await self._run_direct(session_id, step, calls,
+                                              target_device, budget)
+
         ctx = await self.memory.load_context(session_id, user_message=goal_text)
         messages: list[LLMMessage] = [
             LLMMessage(role=Role.SYSTEM,
@@ -265,6 +294,62 @@ class Executor:
                                          source="verification")
 
         raise RuntimeError(f"iteration cap reached ({self.policy.max_steps})")
+
+    # ------------------------------------------------------------------ direct path
+    async def _run_direct(self, session_id, step, calls: list[tuple],
+                          target_device: str, budget: BudgetTracker) -> dict:
+        """Execute deterministic tool calls (from DirectToolRouter) with the
+        SAME dispatch/observer/history machinery as the LLM loop — but no LLM.
+        A failing direct tool raises so run_step's retry/failure handling and
+        honest FAILED reporting stay in charge (never fake success)."""
+        from planning.direct import describe as direct_describe
+
+        tool_calls_record: list[dict] = []
+        observations: list[str] = []
+        response_parts: list[str] = []
+        for name, params in calls:
+            tc = ToolCall(id=new_id("tc_"), name=name, arguments=params)
+            result = await self._dispatch_tool(session_id, step.id, tc,
+                                               target_device=target_device)
+            tool_calls_record.append({"name": tc.name, "args": tc.arguments,
+                                      "ok": result.ok, "error": result.error,
+                                      "ms": result.duration_ms})
+            # Observer: verify the tool's effect in the environment
+            obs = self.observers.verify_after(
+                tc.name, tc.arguments,
+                result.data if isinstance(result.data, dict) else None)
+            if self.bus is not None and obs:
+                self.bus.emit(EventType.OBSERVER_RESULT,
+                              {"tool": tc.name,
+                               "observations": [o.to_context() for o in obs]},
+                              session_id=session_id)
+            obs_strs = [o.to_context() for o in obs]
+            observations.extend(obs_strs)
+            # persist history exactly like the LLM loop does
+            self.memory.store_message(
+                session_id, LLMMessage(role=Role.ASSISTANT,
+                                       content="", tool_calls=[tc]))
+            self.memory.store_message(
+                session_id, LLMMessage(role=Role.TOOL,
+                                       content=str(result.data or result.error),
+                                       tool_call_id=tc.id))
+            # screen-verification gate — SAME semantics as the LLM loop: a
+            # negative screen verification for android_open_youtube is a
+            # retryable failure even if the tool itself reported ok
+            failed_verif = [o for o in obs_strs if "✗ verification failed" in o]
+            if failed_verif and tc.name == "android_open_youtube":
+                raise DirectPathError("screen verification failed: "
+                                      + failed_verif[-1],
+                                      observations=observations)
+            if not result.ok:
+                raise DirectPathError(f"{tc.name} failed: {result.error}",
+                                      observations=observations)
+            response_parts.append(direct_describe(tc.name, result))
+        response = "\n".join(response_parts)
+        self.memory.store_message(session_id, LLMMessage(role=Role.ASSISTANT,
+                                                         content=response))
+        return {"response": response, "tool_calls": tool_calls_record,
+                "observations": observations}
 
     # ------------------------------------------------------------------ tool dispatch
     async def _dispatch_tool(self, session_id: str, step_id: str | None,
