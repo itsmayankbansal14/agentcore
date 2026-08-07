@@ -108,6 +108,9 @@ python main.py selfcheck           # boot verification
 - `api/server.py` — added `/api/runtime`, `/api/executor`, `/api/observer`;
   `/api/executions` totals; SSE stream now emits live progress events
 - `executor/executor.py` — optional event bus: emits TOOL_STARTED/TOOL_RESULT/STEP_* events
+- `planning/direct.py` — deterministic fast-path: single-intent goals
+  (time/weather/todo/clipboard/open-youtube) run their real tool WITHOUT the
+  LLM; the Executor consults it before the LLM loop (complex goals excluded)
 - `observer/manager.py` — recent-observation ring buffer
 - `core/app.py` — wires bus into the Executor
 - `main.py` — dev/launcher dispatch, `--dev`, `--launcher`, `--no-reload`
