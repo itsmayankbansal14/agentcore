@@ -54,7 +54,7 @@ LLM **only reasons**; tools act; SQLite remembers; the **task loop** is the cent
 
 ### Control surface
 - FastAPI REST + WebSocket (`/ws` broadcasts live agent events) + web dashboard
-  (`python main.py serve` → http://localhost:9000). The `/ws` endpoint is the
+  (`python main.py serve` → http://localhost:8000). The `/ws` endpoint is the
   future Android transport.
 
 ### Tools (14 registered)
@@ -68,17 +68,43 @@ LLM **only reasons**; tools act; SQLite remembers; the **task loop** is the cent
 ```bash
 pip install -r requirements.txt   # or: uv sync
 cp .env.example .env              # add OPENROUTER_API_KEY (optional; mock works offline)
-python main.py whoami
+
+python main.py                    # PRIMARY ENTRY → dev console at http://localhost:8000
+                                  # (thin dashboard: chat, planner, execution progress,
+                                  #  current task, memory, devices, tools, live logs)
+
 python main.py chat               # REPL
-python main.py serve              # dashboard → http://localhost:9000
+python main.py serve [port]       # same dev console (default 8000)
+python main.py whoami             # providers / tools / devices
 python main.py ingest notes/      # index knowledge
 python main.py search "binary search"
 python scripts/migrate_jarvis.py --jarvis ../jarvis   # import JARVIS JSON data
 python tests/smoke.py             # 37 core tests
-python tests/test_api.py          # 13 API tests
+python tests/test_api.py          # 20 API + dashboard tests
 python tests/test_architecture.py # 47 architecture tests
+python tests/test_android.py      # 10 android transport tests
 python scripts/test_live.py       # 8 live tests (needs a key in .env)
 ```
+
+## Dashboard (dev console — thin presentation layer)
+
+`dashboard/app.py` is the **primary development entry point** (`python main.py`
+boots it on port 8000). It is intentionally thin: it communicates **only through
+AgentApp's public API** and renders `dashboard/templates/dashboard.html` — no
+business logic, no tool code, no planning. It shows:
+
+- **command input** — chat box + quick commands (via `/api/chat`)
+- **planner output** — active plan, goal, step statuses (`/api/planner`)
+- **execution progress** — recent execution history: status / ms / tokens / cost (`/api/executions`)
+- **current task** — working-memory chip in the status bar (`/api/status`)
+- **memory summary** — LTM facts tab + knowledge search (`/api/memory/facts`, `/api/knowledge/search`)
+- **connected devices** — Windows/Android health (`/api/devices`)
+- **registered tools** — searchable registry list (`/api/tools`)
+- **recent logs** — live tail of `logs/agentcore.jsonl` (`/api/logs`) + WS event feed (`/ws`)
+
+The same FastAPI app (via `api/server.py`) exposes `/ws/android` for the phone
+companion and the provider/knowledge REST endpoints; `dashboard/app.py` just
+adds the dev-console template on top.
 
 ## Build & release pipeline (hard gates)
 

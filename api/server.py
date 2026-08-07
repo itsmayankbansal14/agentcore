@@ -74,7 +74,7 @@ class FactsRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # app factory
 # ---------------------------------------------------------------------------
-def create_app(agent: AgentApp | None = None) -> FastAPI:
+def create_app(agent: AgentApp | None = None, template: Path | None = None) -> FastAPI:
     app = FastAPI(title="AgentCore API", version="0.1.0")
     agent_app = agent or AgentApp.create()
 
@@ -242,8 +242,47 @@ def create_app(agent: AgentApp | None = None) -> FastAPI:
             except Exception:
                 pass
 
+    # -------------------------------------------------------------- dev-console data
+    @app.get("/api/planner")
+    async def planner_status(session_id: str = "web") -> dict:
+        """Active plan + step statuses (dashboard Planner panel)."""
+        plan = agent_app.planner.get_active_plan(session_id)
+        if plan is None:
+            return {"plan": None, "goal": None, "status": None, "steps": []}
+        return {
+            "plan": agent_app.planner.plan_summary(plan),
+            "goal": plan.goal,
+            "status": plan.status,
+            "steps": [{"title": st.title, "status": st.status, "order": st.order_idx}
+                      for st in plan.steps],
+        }
+
+    @app.get("/api/executions")
+    async def executions(session_id: str = "web", limit: int = 12) -> dict:
+        """Recent execution history (dashboard Execution panel)."""
+        from database.models import Execution
+        with agent_app.db.session() as s:
+            rows = (s.query(Execution).filter_by(session_id=session_id)
+                    .order_by(Execution.id.desc()).limit(min(limit, 50)).all())
+            return {"executions": [{
+                "id": r.id, "goal": (r.goal or "")[:80], "status": r.status,
+                "duration_ms": r.duration_ms,
+                "tokens": (r.tokens_in or 0) + (r.tokens_out or 0),
+                "cost": round(r.cost or 0.0, 4),
+                "started": (r.started_at or "")[:19],
+            } for r in rows]}
+
+    @app.get("/api/logs")
+    async def logs(lines: int = 30) -> dict:
+        """Tail of the structured JSONL log (dashboard Logs panel)."""
+        log_file = agent_app.config.log_dir / "agentcore.jsonl"
+        if not log_file.exists():
+            return {"logs": []}
+        raw = log_file.read_text(encoding="utf-8", errors="replace").splitlines()
+        return {"logs": raw[-min(lines, 200):]}
+
     # -------------------------------------------------------------- UI
-    ui_file = ROOT / "ui" / "dashboard.html"
+    ui_file = template or ROOT / "ui" / "dashboard.html"
     if ui_file.exists():
         dashboard_html = ui_file.read_text(encoding="utf-8")
 

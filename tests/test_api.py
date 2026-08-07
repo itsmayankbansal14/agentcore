@@ -90,6 +90,27 @@ def main() -> None:
     r = client.get("/")
     check("dashboard html", r.status_code == 200 and "AGENTCORE" in r.text)
 
+    print("\n[G] Dev-console panels")
+    r = client.get("/api/planner?session_id=api")
+    check("planner panel", r.status_code == 200 and "steps" in r.json(), r.text[:80])
+    r = client.get("/api/executions?session_id=api&limit=5")
+    check("executions panel", r.status_code == 200 and "executions" in r.json())
+    r = client.get("/api/logs?lines=10")
+    check("logs panel", r.status_code == 200 and "logs" in r.json())
+
+    print("\n[H] dashboard.app entry point (thin, via AgentApp)")
+    from dashboard.app import create_app as dash_create_app
+    dash_client = TestClient(dash_create_app(app))
+    r = dash_client.get("/")
+    check("dashboard/app serves console", r.status_code == 200 and "AGENTCORE" in r.text)
+    prov.enqueue("[ECHO]")
+    r = dash_client.post("/api/chat", json={"message": "hello", "session_id": "api"})
+    check("dashboard/app chat via AgentApp", r.status_code == 200 and "response" in r.json())
+    r = dash_client.get("/api/planner?session_id=api")
+    check("dashboard/app planner panel", r.status_code == 200 and "steps" in r.json())
+    r = dash_client.get("/api/logs?lines=5")
+    check("dashboard/app logs panel", r.status_code == 200 and "logs" in r.json())
+
     print(f"\n{'='*40}\nPASSED: {PASS}   FAILED: {FAIL}")
     sys.exit(1 if FAIL else 0)
 

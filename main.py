@@ -11,7 +11,9 @@ Usage:
   python main.py ingest <file|dir>    index files into the knowledge base
   python main.py search <query>       search indexed knowledge
   python main.py facts                show long-term memory facts
-  python main.py serve                start the API + dashboard (port 9000)
+  python main.py                      start the dev console (dashboard) at http://localhost:8000
+  python main.py chat                 interactive REPL
+  python main.py serve [port]         start the dev console (default 8000)
   python main.py selfcheck            verify the app boots (used by build smoke test)
   python main.py version              print version
 """
@@ -120,12 +122,22 @@ def repl(app: AgentApp, session_id: str) -> None:
         print(f"\n🤖 {result}")
 
 
+def _cmd_serve(app, port: int | None = None) -> None:
+    """Boot the dev console (thin dashboard) — primary entry point."""
+    from dashboard.app import run as run_dashboard
+    run_dashboard(app, port=port)
+
+
 def main() -> None:
     args = sys.argv[1:]
     session_id = "demo"
     app = _app()
 
-    if not args or args[0] == "chat":
+    if not args:
+        # PRIMARY ENTRY: `python main.py` → dev console at localhost:8000
+        _cmd_serve(app)
+        return
+    if args[0] == "chat":
         repl(app, session_id)
     elif args[0] == "say":
         print(asyncio.run(app.orchestrator.handle_user_message(session_id, " ".join(args[1:]))))
@@ -159,12 +171,8 @@ def main() -> None:
         except Exception:
             print("AgentCore 0.1.0")
     elif args[0] == "serve":
-        import os
-        import uvicorn
-        from api.server import create_app
-        port = int(os.environ.get("AGENTCORE_PORT", "9000"))
-        print(f"🌐 AgentCore API + dashboard → http://localhost:{port}")
-        uvicorn.run(create_app(app), host="0.0.0.0", port=port, log_level="warning")
+        port = int(args[1]) if len(args) > 1 and args[1].isdigit() else None
+        _cmd_serve(app, port)
     else:
         print(__doc__)
 
