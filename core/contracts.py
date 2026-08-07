@@ -91,6 +91,7 @@ class ToolResult:
     error: str | None = None
     tool: str = ""
     duration_ms: int = 0
+    attempts: int = 1            # how many tries this execution took
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +101,7 @@ class EventType(str, Enum):
     USER_MESSAGE_RECEIVED = "user_message_received"
     MESSAGE_ADDED = "message_added"
     PLAN_CREATED = "plan_created"
+    PLAN_FAILED = "plan_failed"
     STEP_STARTED = "step_started"
     STEP_COMPLETED = "step_completed"
     STEP_FAILED = "step_failed"

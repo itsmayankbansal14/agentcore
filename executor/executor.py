@@ -23,6 +23,7 @@ import structlog
 
 from core.contracts import (ContextBundle, EventType, LLMMessage, Role,
                             ToolCall, ToolResult)
+from core.errors import FailureClass, classify, suggestions_for
 from database.connection import Database
 from database.models import Execution, ToolExecution
 from executor.policy import BudgetTracker, ExecutionPolicy
@@ -30,6 +31,7 @@ from llm.manager import LLMManager
 from memory.manager import MemoryManager
 from observer.manager import ObserverManager
 from planner.steps import StepStatus
+from tools.base import Tool
 from tools.monitor import ToolMonitor
 from tools.registry import ToolRegistry
 
@@ -47,6 +49,8 @@ class StepOutcome:
     budget: dict = field(default_factory=dict)
     duration_ms: int = 0
     plan_finished: bool = False
+    failure_class: str | None = None
+    recovery_suggestions: list[str] = field(default_factory=list)
 
 
 class Executor:
@@ -149,13 +153,7 @@ class Executor:
                                       session_id=session_id)
                     continue
                 self._set_step(step, StepStatus.FAILED, budget, t0, outcome, exec_id)
-                if self.bus is not None:
-                    self.bus.emit(EventType.STEP_FAILED,
-                                  {"step": step.id, "title": step.title,
-                                   "attempts": attempts + 1,
-                                   "elapsed_s": round(time.time() - t0, 1),
-                                   "errors": outcome.errors},
-                                  session_id=session_id)
+                self._record_step_failure(session_id, exec_id, outcome, step, attempts, t0)
                 return outcome
 
             # success
@@ -274,27 +272,95 @@ class Executor:
             s.add(row)
             s.commit()
             exec_id = row.id
+        # tool-level timeout/retry/cancellation handled inside guarded_execute
         result = await self.registry.execute(tc.name, tc.arguments, ctx={
             "session_id": session_id, "confirm": True, "devices": self.devices})
+
+        # failure classification + recovery suggestions (requirements 4 & 5)
+        failure_info = None
+        if not result.ok:
+            failure_info = classify(result.error or "", component="tool",
+                                    tool=tc.name)
+            failure_info.suggestions = suggestions_for(failure_info)
+
+        # rollback where possible (tool declares rollback(); executed on failure)
+        rollback_state = "not_defined"
+        if not result.ok:
+            tool_obj = self.registry.get(tc.name)
+            if tool_obj is not None and type(tool_obj).rollback is not Tool.rollback:
+                try:
+                    await tool_obj.rollback(tc.arguments, {"session_id": session_id})
+                    rollback_state = "ok"
+                    log.info("tool rollback executed", tool=tc.name, session=session_id)
+                except Exception as re_:  # noqa: BLE001
+                    rollback_state = "failed:" + str(re_)[:80]
+                    log.warning("tool rollback failed", tool=tc.name,
+                                error=str(re_)[:100], session=session_id)
+            else:
+                rollback_state = "not_supported"
+
         with self.db.session() as s:
             row = s.get(ToolExecution, exec_id)
             row.status = "ok" if result.ok else "error"
             row.duration_ms = result.duration_ms
             row.result = json.dumps(result.data, default=str) if result.ok else None
             row.error = result.error
+            row.retries = max(0, (result.attempts or 1) - 1)
+            if failure_info:
+                row.failure_class = failure_info.kind.value
+                row.rollback = rollback_state
+                row.recovery_suggestions = json.dumps(failure_info.suggestions)
             s.commit()
+
         self.monitor.mark_end(tc.name, result.ok, result.duration_ms,
                              result.error or "")
         if self.bus is not None:
             self.bus.emit(EventType.TOOL_RESULT,
                           {"tool": tc.name, "ok": result.ok,
                            "error": result.error, "ms": result.duration_ms,
-                           "args": tc.arguments,
-                           "data": result.data},
+                           "args": tc.arguments, "data": result.data,
+                           "attempts": result.attempts,
+                           "failure_class": failure_info.kind.value if failure_info else None,
+                           "recovery_suggestions": failure_info.suggestions if failure_info else [],
+                           "rollback": rollback_state},
                           session_id=session_id)
+        if failure_info:
+            log.warning("tool failed (classified)",
+                        tool=tc.name, failure_class=failure_info.kind.value,
+                        suggestions=failure_info.suggestions, session=session_id)
+        else:
+            log.info("tool ok", tool=tc.name, ms=result.duration_ms,
+                     attempts=result.attempts, session=session_id)
         return result
 
     # ------------------------------------------------------------------ history
+    def _record_step_failure(self, session_id, exec_id, outcome, step, attempts, t0) -> None:
+        """Classify a step failure, attach recovery suggestions to the
+        Execution row, emit STEP_FAILED with them, and log structured."""
+        err_text = "; ".join(outcome.errors) or "step failed"
+        info = classify(err_text, component="executor")
+        info.suggestions = suggestions_for(info)
+        outcome.failure_class = info.kind.value
+        outcome.recovery_suggestions = info.suggestions
+        with self.db.session() as s:
+            row = s.get(Execution, exec_id)
+            if row is not None:
+                row.failure_class = info.kind.value
+                row.recovery_suggestions = json.dumps(info.suggestions)
+                s.commit()
+        if self.bus is not None:
+            self.bus.emit(EventType.STEP_FAILED,
+                          {"step": step.id, "title": step.title,
+                           "attempts": attempts + 1,
+                           "elapsed_s": round(time.time() - t0, 1),
+                           "errors": outcome.errors,
+                           "failure_class": info.kind.value,
+                           "recovery_suggestions": info.suggestions},
+                          session_id=session_id)
+        log.warning("step failed (classified)", step=step.id,
+                    failure_class=info.kind.value, suggestions=info.suggestions,
+                    session=session_id)
+
     def _begin_execution(self, session_id, plan_id, step_id, goal) -> int:
         with self.db.session() as s:
             row = Execution(session_id=session_id, plan_id=plan_id, step_id=step_id,

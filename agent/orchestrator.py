@@ -17,6 +17,7 @@ import structlog
 from config.manager import ConfigManager
 from core.bus import EventBus
 from core.contracts import (ContextBundle, EventType, LLMMessage, Role)
+from core.errors import FailureClass, classify, suggestions_for
 from core.permissions import PermissionManager
 from database.models import Session as DBSession
 from devices.base import DeviceManager
@@ -93,7 +94,19 @@ class AgentOrchestrator:
         if stored:
             log.debug("facts stored from message", count=stored)
 
-        plan, step = await self.planner.get_or_create(session_id, text)
+        try:
+            plan, step = await self.planner.get_or_create(session_id, text)
+        except Exception as e:  # noqa: BLE001 — planner failure classification
+            info = classify(e, component="planner")
+            info.suggestions = suggestions_for(info)
+            log.warning("planner failure classified", failure_class=info.kind.value,
+                        suggestions=info.suggestions, session=session_id)
+            self.bus.emit(EventType.PLAN_FAILED,
+                          {"failure_class": info.kind.value,
+                           "detail": str(e)[:200],
+                           "recovery_suggestions": info.suggestions},
+                          session_id=session_id)
+            return ("❌ Planning failed. " + " ".join(info.suggestions[:2]))
         if plan is None or step is None:
             # completed plan or nothing actionable
             if plan is not None:

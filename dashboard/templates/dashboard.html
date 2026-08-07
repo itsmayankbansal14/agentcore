@@ -136,7 +136,7 @@ table.tools td{padding:4px 6px;border-bottom:1px solid #14142a;font-family:monos
     <div class="panel">
       <h3>🧰 Tool monitor <span style="color:#6b7280;font-size:9px;text-transform:none">live state · last used · exec time · success rate</span></h3>
       <div style="padding:8px 10px;max-height:240px;overflow:auto">
-        <table class="tools"><thead><tr><th>tool</th><th>state</th><th>runs</th><th>last ms</th><th>avg ms</th><th>ok%</th></tr></thead>
+        <table class="tools"><thead><tr><th>tool</th><th>state</th><th>runs</th><th>last ms</th><th>avg ms</th><th>ok%</th><th>last error</th></tr></thead>
         <tbody id="toolLive"><tr><td colspan="6" style="color:#6b7280">loading…</td></tr></tbody></table>
       </div>
     </div>
@@ -268,8 +268,8 @@ async function refreshToolLive(){
     const d = await (await fetch('/api/tools/live')).json();
     const rows = d.tools.map(t=>{
       const state = t.state==='busy' ? '<span class="toolbar busy">BUSY</span>' : '<span class="toolbar ready">ready</span>';
-      const last = t.last_used ? new Date(t.last_used*1000).toLocaleTimeString() : '—';
-      return `<tr><td>${t.tool}</td><td>${state}</td><td>${t.runs}</td><td>${t.last_ms||0}</td><td>${t.avg_ms||0}</td><td>${t.success_rate}%</td></tr>`;
+      const err = t.last_error ? `<span style="color:#f87171" title="${t.last_error}">⚠ ${(t.last_error||'').slice(0,24)}</span>` : '—';
+      return `<tr><td>${t.tool}</td><td>${state}</td><td>${t.runs}</td><td>${t.last_ms||0}</td><td>${t.avg_ms||0}</td><td>${t.success_rate}%</td><td>${err}</td></tr>`;
     }).join('');
     $('toolLive').innerHTML = rows || '<tr><td colspan="6" style="color:#6b7280">(no tool executions yet)</td></tr>';
   }catch(e){}
@@ -285,10 +285,10 @@ function timelineEntry(ev){
     case 'plan_created': label='plan created'; detail=(ev.plan||'').slice(0,40); break;
     case 'step_started': label='step '+(ev.retry?'retry':'start'); cls=(ev.retry?'err':''); detail=ev.title + (ev.attempt?' (attempt '+ev.attempt+')':'')+(ev.reason?' — '+ev.reason:''); break;
     case 'tool_started': label='tool start'; cls=''; detail=ev.tool+' '+JSON.stringify(ev.args||{}).slice(0,60); break;
-    case 'tool_result': label='tool result'; cls=ev.ok?'ok':'err'; detail=ev.tool+' → '+(ev.ok?'ok':'ERR: '+ev.error)+' ('+ev.ms+'ms)'; break;
+    case 'tool_result': label='tool result'; cls=ev.ok?'ok':'err'; detail=ev.tool+' → '+(ev.ok?'ok':'ERR: '+ev.error)+' ('+ev.ms+'ms)' + (ev.failure_class? ' · '+ev.failure_class : '') + (ev.attempts>1? ' · attempts='+ev.attempts : ''); break;
     case 'observer_result': label='observer'; detail=(ev.observations||[]).join(' | ').slice(0,90); break;
     case 'step_completed': label='step done'; cls='ok'; detail=ev.title+' ('+ev.elapsed_s+'s)'; break;
-    case 'step_failed': label='step failed'; cls='err'; detail=ev.title+' ('+ev.elapsed_s+'s)'; break;
+    case 'step_failed': label='step failed'; cls='err'; detail=ev.title+' ('+ev.elapsed_s+'s)' + (ev.failure_class? ' · '+ev.failure_class : '') + ((ev.recovery_suggestions||[]).length? ' · suggest: '+(ev.recovery_suggestions||[])[0].slice(0,50) : ''); break;
     case 'provider_switched': label='provider'; detail=ev.provider+' · '+ev.model; break;
     case 'session_resumed': label='resumed'; detail='plan '+ev.plan; break;
     default: label=ev.type; detail=JSON.stringify(ev).slice(0,80);

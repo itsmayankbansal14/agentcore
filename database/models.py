@@ -159,6 +159,11 @@ class ToolExecution(Base):
     status: Mapped[str] = mapped_column(String, default="ok")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    # reliability (additive; populated on failure)
+    retries: Mapped[int] = mapped_column(Integer, default=0)
+    failure_class: Mapped[str | None] = mapped_column(String, nullable=True)
+    rollback: Mapped[str] = mapped_column(String, default="not_defined")
+    recovery_suggestions: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[str] = mapped_column(String, default=now)
     finished_at: Mapped[str | None] = mapped_column(String, nullable=True)
 
@@ -179,6 +184,9 @@ class Execution(Base):
     tokens_out: Mapped[int] = mapped_column(Integer, default=0)
     cost: Mapped[float] = mapped_column(Float, default=0.0)
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # reliability (additive; populated on failure)
+    failure_class: Mapped[str | None] = mapped_column(String, nullable=True)
+    recovery_suggestions: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[str] = mapped_column(String, default=now)
     finished_at: Mapped[str | None] = mapped_column(String, nullable=True)
 

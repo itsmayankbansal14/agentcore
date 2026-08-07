@@ -364,6 +364,9 @@ def create_app(agent: AgentApp | None = None, template: Path | None = None) -> F
                 "tokens": (r.tokens_in or 0) + (r.tokens_out or 0),
                 "cost": round(r.cost or 0.0, 4),
                 "started": (r.started_at or "")[:19],
+                "failure_class": r.failure_class,
+                "recovery_suggestions": (json.loads(r.recovery_suggestions)
+                                         if r.recovery_suggestions else []),
             } for r in rows],
                 "total_tokens": total_tokens,
                 "total_cost": round(total_cost, 4)}
