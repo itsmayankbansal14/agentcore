@@ -3,7 +3,7 @@
 Windows laptop = controller · Android phone = thin remote executor.
 LLM **only reasons**; tools act; SQLite remembers; the **task loop** is the center.
 
-> Test status: **149 checks passing** (47 arch + 37 core + 26 api + 12 android + 19 vertical-slice + 8 live) across 4 suites:
+> Test status: **157 checks passing** (47 arch + 37 core + 34 api + 12 android + 19 vertical-slice + 8 live) across 4 suites:
 > `tests/test_architecture.py` (47) · `tests/smoke.py` (37) · `tests/test_api.py` (13) ·
 > `scripts/test_live.py` (8, against real OpenRouter).
 
@@ -128,7 +128,15 @@ boots it on port 8000). It is intentionally thin: it communicates **only through
 AgentApp's public API** and renders `dashboard/templates/dashboard.html` — no
 business logic, no tool code, no planning. It shows:
 
-- **command input** — chat box + quick commands (via `/api/chat`)
+- **command input** — chat box + quick commands (via `/api/chat` → real pipeline)
+- **live execution** — `/api/execution/live`: current goal, plan, step, running
+  tool, retry count, elapsed (Dashboard → FastAPI → AgentApp → Planner → Executor
+  → Tool Registry → Tool → Observer → Memory → Dashboard)
+- **tool monitor** — `/api/tools/live`: per-tool state (ready/busy), last used,
+  exec time, success rate (ToolMonitor)
+- **execution timeline** — `/api/timeline`: complete ordered trace (goal →
+  step_started → tool_started → tool_result → observer_result → step_completed),
+  streamed live over `/ws`
 - **planner output** — active plan, goal, step statuses (`/api/planner`)
 - **execution progress** — recent execution history: status / ms / tokens / cost (`/api/executions`)
 - **current task** — working-memory chip in the status bar (`/api/status`)

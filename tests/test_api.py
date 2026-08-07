@@ -108,6 +108,33 @@ def main() -> None:
     check("runtime status", r.status_code == 200 and "provider" in r.json()
           and "uptime_s" in r.json(), r.text[:80])
 
+    print("\n[G4] Live debugging APIs (execution/live, tools/live, timeline)")
+    r = client.get("/api/execution/live?session_id=api")
+    check("execution/live", r.status_code == 200 and "phase" in r.json()
+          and "current_step" in r.json() and "retry_count" in r.json(),
+          r.text[:80])
+    r = client.get("/api/tools/live")
+    check("tools/live", r.status_code == 200 and "tools" in r.json()
+          and "current" in r.json())
+    r = client.get("/api/timeline?session_id=api&limit=50")
+    check("timeline", r.status_code == 200 and "timeline" in r.json())
+    # after a chat runs, the timeline must contain the real pipeline events
+    prov.enqueue('[TOOL time_now {}]', 'the time was fetched')
+    client.post("/api/chat", json={"message": "what time is it", "session_id": "api"})
+    r = client.get("/api/timeline?session_id=api&limit=100")
+    types = {e["type"] for e in r.json()["timeline"]}
+    check("timeline has step_started", "step_started" in types, str(sorted(types)))
+    check("timeline has tool_started+result", "tool_started" in types and "tool_result" in types,
+          str(sorted(types)))
+    check("timeline has observer_result", "observer_result" in types, str(sorted(types)))
+    check("timeline has step_completed", "step_completed" in types, str(sorted(types)))
+    r = client.get("/api/tools/live")
+    tstats = {t["tool"]: t for t in r.json()["tools"]}
+    check("tool monitor has time_now with stats",
+          "time_now" in tstats and tstats["time_now"]["runs"] >= 1
+          and tstats["time_now"]["success_rate"] == 100.0,
+          str(tstats.get("time_now")))
+
     print("\n[G3] SSE execution stream emits progress events + final")
     prov.enqueue('[TOOL time_now {}]', 'the time was retrieved')
     with client.stream("POST", "/api/chat/stream",

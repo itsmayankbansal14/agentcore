@@ -175,6 +175,54 @@ def create_app(agent: AgentApp | None = None, template: Path | None = None) -> F
                                                  key=lambda t: t.name)],
                 "count": len(agent_app.registry)}
 
+    @app.get("/api/tools/live")
+    async def tools_live() -> dict:
+        """Live tool monitor: state (ready/busy), last used, exec time, success rate."""
+        return {"tools": agent_app.tool_monitor.stats(),
+                "current": agent_app.tool_monitor.current()}
+
+    @app.get("/api/execution/live")
+    async def execution_live(session_id: str = "web") -> dict:
+        """Live execution state: current goal / plan / step / running tool /
+        retry count / elapsed time — the dashboard's live-execution panel."""
+        plan = agent_app.planner.get_active_plan(session_id)
+        wm = agent_app.memory.load_working(session_id)
+        phase = "idle"
+        goal = wm.get("current_task") or ""
+        plan_s = agent_app.planner.plan_summary(plan) if plan else None
+        step = None
+        running_tool = agent_app.tool_monitor.current()
+        retries = 0
+        started_at = None
+        if plan is not None:
+            for st in plan.steps:
+                if st.status in ("RUNNING", "WAITING_TOOL", "OBSERVING", "RETRYING", "PLANNING"):
+                    phase = "executing"
+                    step = {"title": st.title, "status": st.status,
+                            "attempts": st.attempts, "order": st.order_idx}
+                    retries = max(0, st.attempts - 1)
+                    break
+        elapsed = None
+        if phase == "executing" and running_tool:
+            elapsed = running_tool.get("elapsed_s")
+        return {
+            "phase": phase,
+            "goal": goal[:160],
+            "plan": plan_s,
+            "current_step": step,
+            "running_tool": running_tool,
+            "retry_count": retries,
+            "started_at": started_at,
+            "elapsed_s": elapsed,
+            "session": session_id,
+        }
+
+    @app.get("/api/timeline")
+    async def timeline(session_id: str = "web", limit: int = 100) -> dict:
+        """Complete execution timeline for a session (event bus history)."""
+        events = agent_app.bus.recent(session_id=session_id, n=limit)
+        return {"timeline": [e.to_log() for e in events]}
+
     @app.get("/api/devices")
     async def devices() -> dict:
         out = {}

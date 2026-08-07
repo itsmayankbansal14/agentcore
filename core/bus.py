@@ -23,8 +23,10 @@ log = structlog.get_logger("agentcore.bus")
 
 
 class EventBus:
-    def __init__(self) -> None:
+    def __init__(self, history_size: int = 500) -> None:
         self._subs: dict[EventType, list[Callable[[Event], None]]] = defaultdict(list)
+        self.history: list[Event] = []      # bounded ring buffer (dashboard timeline)
+        self._history_size = history_size
 
     def subscribe(self, event_type: EventType, handler: Callable[[Event], None]) -> None:
         self._subs[event_type].append(handler)
@@ -35,11 +37,20 @@ class EventBus:
             self.subscribe(et, handler)
 
     def publish(self, event: Event) -> None:
+        self.history.append(event)
+        if len(self.history) > self._history_size:
+            self.history = self.history[-self._history_size:]
         for handler in list(self._subs.get(event.type, [])):
             try:
                 handler(event)
             except Exception:  # noqa: BLE001 — bus must never break a publisher
                 log.exception("event handler failed", type=event.type.value)
+
+    def recent(self, session_id: str | None = None, n: int = 100) -> list[Event]:
+        """Events for the timeline API (filtered by session, newest last)."""
+        if session_id is None:
+            return self.history[-n:]
+        return [e for e in self.history[-n:] if e.session_id == session_id]
 
     # convenience emitters
     def emit(self, type_: EventType, payload: dict[str, Any] | None = None,

@@ -30,6 +30,7 @@ from llm.manager import LLMManager
 from memory.manager import MemoryManager
 from observer.manager import ObserverManager
 from planner.steps import StepStatus
+from tools.monitor import ToolMonitor
 from tools.registry import ToolRegistry
 
 log = structlog.get_logger("agentcore.executor")
@@ -52,7 +53,7 @@ class Executor:
     def __init__(self, db: Database, llm: LLMManager, memory: MemoryManager,
                  registry: ToolRegistry, observers: ObserverManager,
                  policy: ExecutionPolicy | None = None, devices=None,
-                 bus=None) -> None:
+                 bus=None, monitor: ToolMonitor | None = None) -> None:
         self.db = db
         self.llm = llm
         self.memory = memory
@@ -61,6 +62,7 @@ class Executor:
         self.policy = policy or ExecutionPolicy()
         self.devices = devices
         self.bus = bus          # optional: publish tool/step events for the runtime API
+        self.monitor = monitor or ToolMonitor()
 
     # ------------------------------------------------------------------ main entry
     async def run_step(self, session_id: str, plan, step, goal_text: str,
@@ -76,6 +78,12 @@ class Executor:
         self.memory.update_working(session_id, task=goal_text,
                                    plan_id=plan_id or (plan.id if plan else None),
                                    step_id=step.id, state={"phase": "executing"})
+        if self.bus is not None:
+            self.bus.emit(EventType.STEP_STARTED,
+                          {"step": step.id, "title": step.title,
+                           "attempt": 1, "goal": goal_text[:120],
+                           "started_at": t0},
+                          session_id=session_id)
 
         violation = budget.check()
         if violation:
@@ -110,6 +118,13 @@ class Executor:
                 if attempts <= self.policy.max_retries:
                     self._set_step(step, StepStatus.RETRYING, budget, t0, outcome, exec_id)
                     log.warning("step timeout, retrying", step=step.id, attempt=attempts)
+                    if self.bus is not None:
+                        self.bus.emit(EventType.STEP_STARTED,
+                                      {"step": step.id, "title": step.title,
+                                       "attempt": attempts + 1, "retry": True,
+                                       "reason": "timeout",
+                                       "elapsed_s": round(time.time() - t0, 1)},
+                                      session_id=session_id)
                     continue
                 self._set_step(step, StepStatus.FAILED, budget, t0, outcome, exec_id)
                 outcome.errors.append("retries exhausted after timeout")
@@ -125,11 +140,21 @@ class Executor:
                     self._set_step(step, StepStatus.RETRYING, budget, t0, outcome, exec_id)
                     log.warning("step error, retrying", step=step.id, attempt=attempts,
                                 error=str(e)[:120])
+                    if self.bus is not None:
+                        self.bus.emit(EventType.STEP_STARTED,
+                                      {"step": step.id, "title": step.title,
+                                       "attempt": attempts + 1, "retry": True,
+                                       "reason": str(e)[:120],
+                                       "elapsed_s": round(time.time() - t0, 1)},
+                                      session_id=session_id)
                     continue
                 self._set_step(step, StepStatus.FAILED, budget, t0, outcome, exec_id)
                 if self.bus is not None:
                     self.bus.emit(EventType.STEP_FAILED,
-                                  {"step": step.id, "errors": outcome.errors},
+                                  {"step": step.id, "title": step.title,
+                                   "attempts": attempts + 1,
+                                   "elapsed_s": round(time.time() - t0, 1),
+                                   "errors": outcome.errors},
                                   session_id=session_id)
                 return outcome
 
@@ -142,7 +167,10 @@ class Executor:
             self._set_step(step, StepStatus.DONE, budget, t0, outcome, exec_id)
             if self.bus is not None:
                 self.bus.emit(EventType.STEP_COMPLETED,
-                              {"step": step.id, "plan_id": plan_id or (plan.id if plan else None)},
+                              {"step": step.id, "title": step.title,
+                               "attempts": attempts + 1,
+                               "elapsed_s": round(time.time() - t0, 1),
+                               "plan_id": plan_id or (plan.id if plan else None)},
                               session_id=session_id)
 
             # lifecycle: advance plan
@@ -192,6 +220,11 @@ class Executor:
                 obs = self.observers.verify_after(
                     tc.name, tc.arguments,
                     result.data if isinstance(result.data, dict) else None)
+                if self.bus is not None and obs:
+                    self.bus.emit(EventType.OBSERVER_RESULT,
+                                  {"tool": tc.name,
+                                   "observations": [o.to_context() for o in obs]},
+                                  session_id=session_id)
                 for o in obs:
                     observations.append(o.to_context())
                 tool_msg = LLMMessage(role=Role.TOOL, content=str(result.data or result.error),
@@ -230,9 +263,10 @@ class Executor:
     async def _dispatch_tool(self, session_id: str, step_id: str | None,
                              tc: ToolCall) -> ToolResult:
         t0 = time.time()
+        self.monitor.mark_start(tc.name)
         if self.bus is not None:
             self.bus.emit(EventType.TOOL_STARTED,
-                          {"tool": tc.name, "args": tc.arguments},
+                          {"tool": tc.name, "args": tc.arguments, "started_at": t0},
                           session_id=session_id)
         with self.db.session() as s:
             row = ToolExecution(session_id=session_id, plan_step_id=step_id,
@@ -249,10 +283,14 @@ class Executor:
             row.result = json.dumps(result.data, default=str) if result.ok else None
             row.error = result.error
             s.commit()
+        self.monitor.mark_end(tc.name, result.ok, result.duration_ms,
+                             result.error or "")
         if self.bus is not None:
             self.bus.emit(EventType.TOOL_RESULT,
                           {"tool": tc.name, "ok": result.ok,
-                           "error": result.error, "ms": result.duration_ms},
+                           "error": result.error, "ms": result.duration_ms,
+                           "args": tc.arguments,
+                           "data": result.data},
                           session_id=session_id)
         return result
 

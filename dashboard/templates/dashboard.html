@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AgentCore — Dashboard</title>
+<title>AgentCore — Live Debug Console</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Segoe UI',Inter,system-ui,sans-serif;background:#07070d;color:#e5e7eb;min-height:100vh}
@@ -20,28 +20,29 @@ body{font-family:'Segoe UI',Inter,system-ui,sans-serif;background:#07070d;color:
 .chip.on{color:#34d399;border-color:rgba(52,211,153,.4);background:rgba(52,211,153,.08)}
 .chip.purple{color:#a78bfa;border-color:rgba(139,92,246,.4);background:rgba(139,92,246,.08)}
 .chip.cyan{color:#22d3ee;border-color:rgba(34,211,238,.4);background:rgba(34,211,238,.08)}
-.layout{display:grid;grid-template-columns:1fr 300px;gap:14px;padding:16px;max-width:1400px;margin:0 auto}
-@media(max-width:1000px){.layout{grid-template-columns:1fr}}
+.chip.red{color:#f87171;border-color:rgba(248,113,113,.4);background:rgba(248,113,113,.08)}
+.layout{display:grid;grid-template-columns:1fr 360px;gap:14px;padding:16px;max-width:1500px;margin:0 auto}
+@media(max-width:1100px){.layout{grid-template-columns:1fr}}
 .panel{background:rgba(17,17,28,.6);border:1px solid #23233a;border-radius:14px;overflow:hidden;backdrop-filter:blur(10px)}
 .panel h3{font-size:11px;letter-spacing:1px;color:#a5b4fc;padding:10px 14px;border-bottom:1px solid #1e1e2e;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center}
-.chat{display:flex;flex-direction:column;height:calc(100vh - 140px);min-height:480px}
+.chat{display:flex;flex-direction:column;height:calc(100vh - 120px);min-height:480px}
 .messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
-.msg{max-width:85%;padding:10px 13px;border-radius:12px;font-size:13px;line-height:1.5;white-space:pre-wrap;animation:in .25s ease}
+.msg{max-width:88%;padding:10px 13px;border-radius:12px;font-size:13px;line-height:1.5;white-space:pre-wrap;animation:in .25s ease}
 @keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 .msg.user{align-self:flex-end;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border-bottom-right-radius:4px}
 .msg.bot{align-self:flex-start;background:#1a1a2a;border:1px solid #2a2a44;border-bottom-left-radius:4px}
 .msg.sys{align-self:center;background:#14141f;border:1px dashed #3a3a55;font-size:11px;color:#9ca3af;border-radius:20px;padding:5px 12px}
-.msg .meta{font-size:10px;color:#6b7280;margin-top:5px}
 .inputbar{display:flex;gap:8px;padding:12px;border-top:1px solid #1e1e2e;background:#0d0d18}
 .inputbar input{flex:1;background:#16162a;border:1px solid #2a2a44;color:#fff;padding:11px 14px;border-radius:10px;outline:none;font-size:13px}
 .inputbar input:focus{border-color:#7c3aed}
 .btn{background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;padding:10px 18px;border-radius:10px;font-weight:700;font-size:12px;cursor:pointer}
 .btn:hover{opacity:.9}
 .btn.ghost{background:#1a1a2a;border:1px solid #2a2a44;color:#9ca3af}
-.side{display:flex;flex-direction:column;gap:14px;max-height:calc(100vh - 140px);overflow-y:auto}
-.kv{font-size:11px;padding:4px 0;display:flex;justify-content:space-between;border-bottom:1px solid #1a1a2c}
-.kv span:last-child{color:#d1d5db;font-weight:600}
-.tabrow{display:flex;gap:4px;padding:8px 10px 0}
+.side{display:flex;flex-direction:column;gap:14px;max-height:calc(100vh - 120px);overflow-y:auto}
+.kv{font-size:11px;padding:4px 0;display:flex;justify-content:space-between;border-bottom:1px solid #1a1a2c;gap:8px}
+.kv span:last-child{color:#d1d5db;font-weight:600;text-align:right;word-break:break-all}
+.kv.big span:last-child{font-size:12px;color:#c4b5fd}
+.tabrow{display:flex;gap:4px;padding:8px 10px 0;flex-wrap:wrap}
 .tab{padding:5px 10px;border-radius:8px 8px 0 0;font-size:10px;cursor:pointer;background:#14141f;color:#9ca3af;border:1px solid #23233a;border-bottom:none}
 .tab.active{background:#1a1a2a;color:#a78bfa}
 .tabpane{padding:10px 14px;font-size:11px;color:#cbd5e1;display:none}
@@ -57,6 +58,25 @@ body{font-family:'Segoe UI',Inter,system-ui,sans-serif;background:#07070d;color:
 .qs button:hover{border-color:#7c3aed;color:#fff}
 .spinner{display:inline-block;width:12px;height:12px;border:2px solid #7c3aed;border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
+/* live execution panel */
+.execbox{padding:10px 14px;font-size:11px}
+.execrow{display:flex;gap:8px;padding:5px 0;border-bottom:1px solid #17172a;align-items:baseline}
+.execrow .lbl{color:#6b7280;width:92px;flex-shrink:0;font-size:10px;text-transform:uppercase;letter-spacing:.5px}
+.execrow .val{color:#e5e7eb;flex:1;word-break:break-all;font-family:monospace;font-size:11px}
+.execrow .val.big{color:#c4b5fd;font-size:12px}
+.toolbar{display:inline-block;font-size:9px;padding:2px 8px;border-radius:10px;font-weight:700;letter-spacing:.5px}
+.toolbar.busy{background:rgba(248,113,113,.15);color:#f87171;border:1px solid rgba(248,113,113,.4)}
+.toolbar.ready{background:rgba(52,211,153,.12);color:#34d399;border:1px solid rgba(52,211,153,.35)}
+table.tools{width:100%;border-collapse:collapse;font-size:10px}
+table.tools th{text-align:left;color:#6b7280;font-weight:600;padding:4px 6px;border-bottom:1px solid #23233a;text-transform:uppercase;font-size:9px;letter-spacing:.5px}
+table.tools td{padding:4px 6px;border-bottom:1px solid #14142a;font-family:monospace}
+.tl{max-height:420px;overflow-y:auto;font-family:monospace;font-size:10px;padding:8px 12px}
+.tl div{padding:3px 0;border-bottom:1px dashed #1a1a2c;display:flex;gap:6px;align-items:baseline}
+.tl .t{color:#6b7280;flex-shrink:0}
+.tl .e{font-weight:700;flex-shrink:0;width:150px}
+.tl .d{color:#cbd5e1;word-break:break-all}
+.tl .d.ok{color:#34d399}
+.tl .d.err{color:#f87171}
 </style>
 </head>
 <body>
@@ -64,7 +84,7 @@ body{font-family:'Segoe UI',Inter,system-ui,sans-serif;background:#07070d;color:
 
 <div class="topbar">
   <div class="brand"><div class="orb"></div>
-    <div><h1>AGENTCORE</h1><small>Desktop-first AI agent · Windows + Android</small></div>
+    <div><h1>AGENTCORE · LIVE DEBUG CONSOLE</h1><small>real runtime pipeline — Planner · Executor · Tools · Observer · Memory</small></div>
   </div>
   <div class="chips">
     <span class="chip on" id="chip-provider">provider —</span>
@@ -77,53 +97,67 @@ body{font-family:'Segoe UI',Inter,system-ui,sans-serif;background:#07070d;color:
 </div>
 
 <div class="layout">
-  <!-- chat -->
+  <!-- chat / command -->
   <div class="panel chat">
-    <h3>💬 Talk to your agent <span style="color:#6b7280;font-size:9px;text-transform:none">session: <span id="sessionId">web</span></span></h3>
+    <h3>💬 Command input <span style="color:#6b7280;font-size:9px;text-transform:none">session: <span id="sessionId">web</span></span></h3>
     <div class="messages" id="messages">
-      <div class="msg bot">Welcome, Boss. I'm your AgentCore agent — planner, memory, tools and devices behind one chat.<br><br>
-        Try:<br>
-        • <b>"add todo finish DSA high priority"</b><br>
-        • <b>"what time is it?"</b> (tool call)<br>
-        • <b>"My name is Aman and I live in Jaipur"</b> (memory)<br>
-        • <b>"Build a flask app then write a README then zip it"</b> (plan)
-      </div>
+      <div class="msg sys">Live debug console — commands flow through the REAL pipeline: Dashboard → FastAPI → AgentApp → Planner → Executor → Tool Registry → Tool → Observer → Memory → back here.</div>
     </div>
     <div class="qs">
+      <button onclick="quick('open youtube on my android phone')">▶ open youtube (phone)</button>
+      <button onclick="quick('what time is it?')">🕐 time tool</button>
       <button onclick="quick('add todo finish DSA high priority')">➕ todo</button>
-      <button onclick="quick('what time is it?')">🕐 time</button>
-      <button onclick="quick('My name is Aman and I live in Jaipur')">🧠 remember me</button>
-      <button onclick="quick('Build a flask app then write a README then zip it')">📋 plan</button>
+      <button onclick="quick('weather in jaipur')">⛅ plugin</button>
+      <button onclick="quick('build a flask app then write a README then zip it')">📋 plan</button>
       <button onclick="quick('resume')">▶️ resume</button>
     </div>
     <div class="inputbar">
-      <input id="inp" placeholder="Type a goal or command…" onkeydown="if(event.key==='Enter')send()">
-      <button class="btn" onclick="send()">Send</button>
+      <input id="inp" placeholder="Type a goal… (goes through Planner → Executor → Tools → Observer)" onkeydown="if(event.key==='Enter')send()">
+      <button class="btn" onclick="send()">Submit → Runtime</button>
     </div>
   </div>
 
-  <!-- side -->
+  <!-- side: live debugging panels -->
   <div class="side">
     <div class="panel">
-      <h3>⚙️ Status <span style="color:#6b7280;font-size:9px;text-transform:none">current task / plan / step</span></h3>
-      <div class="statusrow" id="statusRow"><span class="minichip">loading…</span></div>
-      <div style="padding:6px 14px 4px;font-size:10px;color:#a5b4fc;text-transform:uppercase;letter-spacing:1px">▶ Recent executions</div>
-      <div id="execTotals" style="padding:0 14px 6px;font-size:10px;color:#6b7280"></div>
-      <div class="eventlog" id="execList" style="max-height:150px"><div>loading…</div></div>
+      <h3>⚙️ Live Execution</h3>
+      <div class="execbox">
+        <div class="execrow"><span class="lbl">Goal</span><span class="val big" id="lx-goal">—</span></div>
+        <div class="execrow"><span class="lbl">Phase</span><span class="val" id="lx-phase">idle</span></div>
+        <div class="execrow"><span class="lbl">Step</span><span class="val" id="lx-step">—</span></div>
+        <div class="execrow"><span class="lbl">Tool</span><span class="val" id="lx-tool"><span class="toolbar ready">ready</span> —</span></div>
+        <div class="execrow"><span class="lbl">Retries</span><span class="val" id="lx-retry">0</span></div>
+        <div class="execrow"><span class="lbl">Elapsed</span><span class="val" id="lx-elapsed">—</span></div>
+      </div>
+      <div style="padding:6px 14px 4px;font-size:10px;color:#a5b4fc;text-transform:uppercase;letter-spacing:1px">▶ Current plan</div>
+      <div class="execbox" id="lx-plan" style="max-height:160px;overflow:auto"><div class="execrow"><span class="lbl">Plan</span><span class="val">(no active plan)</span></div></div>
     </div>
 
     <div class="panel">
+      <h3>🧰 Tool monitor <span style="color:#6b7280;font-size:9px;text-transform:none">live state · last used · exec time · success rate</span></h3>
+      <div style="padding:8px 10px;max-height:240px;overflow:auto">
+        <table class="tools"><thead><tr><th>tool</th><th>state</th><th>runs</th><th>last ms</th><th>avg ms</th><th>ok%</th></tr></thead>
+        <tbody id="toolLive"><tr><td colspan="6" style="color:#6b7280">loading…</td></tr></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>🧩 Tabs</h3>
       <div class="tabrow">
-        <div class="tab active" data-tab="tools" onclick="tab('tools')">🧰 Tools</div>
+        <div class="tab active" data-tab="timeline" onclick="tab('timeline')">📜 Timeline</div>
         <div class="tab" data-tab="devices" onclick="tab('devices')">📱 Devices</div>
+        <div class="tab" data-tab="tools" onclick="tab('tools')">🧰 Registry</div>
+        <div class="tab" data-tab="observer" onclick="tab('observer')">👁 Observer</div>
         <div class="tab" data-tab="memory" onclick="tab('memory')">🧠 Memory</div>
         <div class="tab" data-tab="knowledge" onclick="tab('knowledge')">📚 Knowledge</div>
-        <div class="tab" data-tab="planner" onclick="tab('planner')">📋 Planner</div>
         <div class="tab" data-tab="logs" onclick="tab('logs')">📜 Logs</div>
-        <div class="tab" data-tab="observer" onclick="tab('observer')">👁 Observer</div>
       </div>
-      <div class="tabpane active" id="pane-tools"><ul id="toolsList"><li>loading…</li></ul></div>
+      <div class="tabpane active" id="pane-timeline">
+        <div class="tl" id="timelineList"><div>connecting…</div></div>
+      </div>
       <div class="tabpane" id="pane-devices"><ul id="devicesList"><li>loading…</li></ul></div>
+      <div class="tabpane" id="pane-tools"><ul id="toolsList"><li>loading…</li></ul></div>
+      <div class="tabpane" id="pane-observer"><div class="eventlog" id="observerList" style="max-height:340px"><div>loading…</div></div></div>
       <div class="tabpane" id="pane-memory"><ul id="memoryList"><li>loading…</li></ul></div>
       <div class="tabpane" id="pane-knowledge">
         <div style="display:flex;gap:6px">
@@ -131,33 +165,15 @@ body{font-family:'Segoe UI',Inter,system-ui,sans-serif;background:#07070d;color:
           <button class="btn" style="padding:6px 10px;font-size:10px" onclick="ksearch()">🔍</button>
         </div>
         <ul id="knowledgeList" style="margin-top:8px"><li>search your indexed notes</li></ul>
-        <div style="margin-top:10px;font-size:10px;color:#6b7280">Index files: <code>python main.py ingest &lt;path&gt;</code></div>
-      </div>
-      <div class="tabpane" id="pane-planner">
-        <div id="planGoal" style="color:#a78bfa;font-weight:700;margin-bottom:6px">—</div>
-        <div id="planStatus" style="font-size:10px;color:#6b7280;margin-bottom:8px">—</div>
-        <ul id="planSteps"><li>loading…</li></ul>
-        <div style="margin-top:10px;font-size:10px;color:#6b7280">Say <code>resume</code> to continue a saved plan.</div>
+        <div style="margin-top:10px;font-size:10px;color:#6b7280">Index: <code>python main.py ingest &lt;path&gt;</code></div>
       </div>
       <div class="tabpane" id="pane-logs">
         <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
           <button class="btn" style="padding:4px 10px;font-size:10px" onclick="refreshLogs()">↻ refresh</button>
-          <span style="color:#6b7280;font-size:10px">last <span id="logCount">0</span> lines of agentcore.jsonl</span>
+          <span style="color:#6b7280;font-size:10px">last <span id="logCount">0</span> lines</span>
         </div>
-        <div class="eventlog" id="logLines" style="max-height:320px"><div>loading…</div></div>
+        <div class="eventlog" id="logLines" style="max-height:340px"><div>loading…</div></div>
       </div>
-      <div class="tabpane" id="pane-observer">
-        <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
-          <button class="btn" style="padding:4px 10px;font-size:10px" onclick="refreshObserver()">↻ refresh</button>
-          <span style="color:#6b7280;font-size:10px">environmental verification (filesystem · time · network · clipboard · system · android · screen)</span>
-        </div>
-        <div class="eventlog" id="observerList" style="max-height:320px"><div>loading…</div></div>
-      </div>
-    </div>
-
-    <div class="panel">
-      <h3>⚡ Live events <span style="color:#6b7280;font-size:9px">(WebSocket)</span></h3>
-      <div class="eventlog" id="eventlog"><div>connecting…</div></div>
     </div>
   </div>
 </div>
@@ -177,13 +193,14 @@ function addMsg(text, who){
 function typing(){
   const d = document.createElement('div');
   d.className = 'msg bot';
-  d.innerHTML = '<span class="spinner"></span> thinking…';
+  d.innerHTML = '<span class="spinner"></span> running through pipeline…';
   d.id = 'typing';
   $('messages').appendChild(d);
   $('messages').scrollTop = $('messages').scrollHeight;
   return d;
 }
 
+// ---------- submit: Dashboard → FastAPI → AgentApp → Planner → Executor → Tools → Observer → Memory
 async function send(){
   const v = $('inp').value.trim();
   if(!v) return;
@@ -194,7 +211,7 @@ async function send(){
     const r = await fetch('/api/resume', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({session_id: sid()})});
     const d = await r.json();
-    t.remove(); addMsg(d.response, 'bot'); return;
+    t.remove(); addMsg(d.response, 'bot'); refreshAll(); return;
   }
   addMsg(v, 'user');
   const t = typing();
@@ -204,79 +221,146 @@ async function send(){
     const d = await r.json();
     t.remove();
     addMsg(d.response, 'bot');
-    refresh();
+    refreshAll();
   }catch(e){ t.remove(); addMsg('Error: '+e.message, 'bot'); }
 }
 function quick(v){ $('inp').value = v; send(); }
 
-// ---- side panels ----
+// ---------- tabs ----------
 function tab(name){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===name));
   document.querySelectorAll('.tabpane').forEach(p=>p.classList.toggle('active', p.id==='pane-'+name));
-}
-async function refresh(){
-  try{
-    const st = await (await fetch('/api/status?session_id='+sid())).json();
-    $('chip-provider').textContent = 'session ' + st.session;
-    $('statusRow').innerHTML = [
-      ['messages', st.messages_in_history],
-      ['tools', st.tools_registered],
-      ['task', st.working && st.working.current_task ? st.working.current_task.slice(0,28) : '—'],
-    ].map(([k,v])=>`<span class="minichip">${k}: <b>${v||'—'}</b></span>`).join('');
-    const tools = await (await fetch('/api/tools')).json();
-    $('chip-tools').textContent = 'tools ' + tools.count;
-    $('toolsList').innerHTML = tools.tools.map(t=>`<li>${t}</li>`).join('');
-    const devs = await (await fetch('/api/devices')).json();
-    $('devicesList').innerHTML = Object.entries(devs).map(([k,v])=>
-      `<li>${k} — ${v.online ? '🟢 online' : '⚫ offline'} <span style="color:#6b7280">(${v.platform||''})</span></li>`).join('');
-    const facts = await (await fetch('/api/memory/facts?session_id='+sid())).json();
-    $('memoryList').innerHTML = (facts.facts.length? facts.facts.map(f=>`<li>${f}</li>`).join('') : '<li>(no facts yet — tell me about yourself)</li>');
-  }catch(e){ console.log('refresh err', e); }
+  if(name==='timeline') refreshTimeline();
+  if(name==='observer') refreshObserver();
 }
 
-async function ksearch(){
-  const q = $('kq').value.trim();
-  if(!q) return;
-  const r = await (await fetch('/api/knowledge/search?q='+encodeURIComponent(q)+'&top_k=5')).json();
-  $('knowledgeList').innerHTML = (r.hits.length? r.hits.map(h=>`<li>${h}</li>`).join('') : '<li>(no hits)</li>');
+// ---------- LIVE EXECUTION PANEL ----------
+async function refreshLiveExec(){
+  try{
+    const d = await (await fetch('/api/execution/live?session_id='+sid())).json();
+    $('lx-goal').textContent = d.goal || '—';
+    $('lx-phase').textContent = d.phase;
+    $('lx-phase').className = 'val';
+    if(d.phase==='executing'){ $('lx-phase').textContent = 'EXECUTING'; $('lx-phase').style.color='#a78bfa'; }
+    $('lx-step').textContent = d.current_step ? d.current_step.title + ' ['+d.current_step.status+']' : '—';
+    if(d.running_tool){
+      $('lx-tool').innerHTML = '<span class="toolbar busy">BUSY</span> '+d.running_tool.tool+' ('+d.running_tool.elapsed_s+'s)';
+    } else {
+      $('lx-tool').innerHTML = '<span class="toolbar ready">ready</span> —';
+    }
+    $('lx-retry').textContent = d.retry_count;
+    $('lx-elapsed').textContent = d.elapsed_s != null ? d.elapsed_s + ' s' : '—';
+    // plan steps
+    const p = await (await fetch('/api/planner?session_id='+sid())).json();
+    if(p.plan){
+      const marks = {DONE:'✅',RUNNING:'▶️',WAITING_TOOL:'⏳',OBSERVING:'👁️',RETRYING:'🔁',BLOCKED:'🚧',FAILED:'❌',CANCELLED:'⛔',INTERRUPTED:'⚠️',PENDING:'⬜',PLANNING:'🧠'};
+      $('lx-plan').innerHTML = '<div class="execrow"><span class="lbl">Goal</span><span class="val">'+p.goal+'</span></div>' +
+        p.steps.map(s=>'<div class="execrow"><span class="lbl">'+(marks[s.status]||'⬜')+'</span><span class="val">'+s.title+' <span style="color:#6b7280">['+s.status+']</span></span></div>').join('');
+    } else {
+      $('lx-plan').innerHTML = '<div class="execrow"><span class="lbl">Plan</span><span class="val">(no active plan — send a goal)</span></div>';
+    }
+  }catch(e){}
 }
 
-// ---- dev console panels: planner / executions / logs ----
-async function refreshPlanner(){
+// ---------- TOOL MONITOR ----------
+async function refreshToolLive(){
   try{
-    const d = await (await fetch('/api/planner?session_id='+sid())).json();
-    if(!d.plan){ $('planGoal').textContent = 'No active plan — send a goal.'; $('planStatus').textContent=''; $('planSteps').innerHTML='<li>(none)</li>'; return; }
-    $('planGoal').textContent = '🎯 ' + d.goal;
-    $('planStatus').textContent = 'status: ' + d.status;
-    const marks = {DONE:'✅',RUNNING:'▶️',WAITING_TOOL:'⏳',OBSERVING:'👁️',RETRYING:'🔁',BLOCKED:'🚧',FAILED:'❌',CANCELLED:'⛔',INTERRUPTED:'⚠️',PENDING:'⬜',PLANNING:'🧠'};
-    $('planSteps').innerHTML = d.steps.map(s=>`<li>${marks[s.status]||'⬜'} ${s.title} <span style="color:#6b7280">[${s.status}]</span></li>`).join('');
-  }catch(e){ console.log('planner err', e); }
-}
-async function refreshExecutions(){
-  try{
-    const d = await (await fetch('/api/executions?session_id='+sid()+'&limit=8')).json();
-    if(!d.executions.length){ $('execList').innerHTML = '<div>(no executions yet)</div>'; $('execTotals').textContent=''; return; }
-    const col = {DONE:'#34d399',FAILED:'#f87171',CANCELLED:'#fbbf24',RUNNING:'#a78bfa'};
-    $('execList').innerHTML = d.executions.map(e=>{
-      const c = col[e.status]||'#9ca3af';
-      return `<div><span style="color:${c}">● ${e.status}</span> ${e.goal} <span style="color:#6b7280">${e.duration_ms}ms · ${e.tokens} tok · $${e.cost}</span></div>`;
+    const d = await (await fetch('/api/tools/live')).json();
+    const rows = d.tools.map(t=>{
+      const state = t.state==='busy' ? '<span class="toolbar busy">BUSY</span>' : '<span class="toolbar ready">ready</span>';
+      const last = t.last_used ? new Date(t.last_used*1000).toLocaleTimeString() : '—';
+      return `<tr><td>${t.tool}</td><td>${state}</td><td>${t.runs}</td><td>${t.last_ms||0}</td><td>${t.avg_ms||0}</td><td>${t.success_rate}%</td></tr>`;
     }).join('');
-    $('execTotals').textContent = 'Σ tokens: ' + d.total_tokens + ' · Σ cost: $' + d.total_cost;
-  }catch(e){ console.log('exec err', e); }
+    $('toolLive').innerHTML = rows || '<tr><td colspan="6" style="color:#6b7280">(no tool executions yet)</td></tr>';
+  }catch(e){}
+}
+
+// ---------- TIMELINE (complete execution trace) ----------
+let tl = [];
+function timelineEntry(ev){
+  const t = new Date(ev.ts*1000).toLocaleTimeString();
+  let label='', cls='', detail='';
+  switch(ev.type){
+    case 'user_message_received': label='user goal'; detail=(ev.message||'').slice(0,60); break;
+    case 'plan_created': label='plan created'; detail=(ev.plan||'').slice(0,40); break;
+    case 'step_started': label='step '+(ev.retry?'retry':'start'); cls=(ev.retry?'err':''); detail=ev.title + (ev.attempt?' (attempt '+ev.attempt+')':'')+(ev.reason?' — '+ev.reason:''); break;
+    case 'tool_started': label='tool start'; cls=''; detail=ev.tool+' '+JSON.stringify(ev.args||{}).slice(0,60); break;
+    case 'tool_result': label='tool result'; cls=ev.ok?'ok':'err'; detail=ev.tool+' → '+(ev.ok?'ok':'ERR: '+ev.error)+' ('+ev.ms+'ms)'; break;
+    case 'observer_result': label='observer'; detail=(ev.observations||[]).join(' | ').slice(0,90); break;
+    case 'step_completed': label='step done'; cls='ok'; detail=ev.title+' ('+ev.elapsed_s+'s)'; break;
+    case 'step_failed': label='step failed'; cls='err'; detail=ev.title+' ('+ev.elapsed_s+'s)'; break;
+    case 'provider_switched': label='provider'; detail=ev.provider+' · '+ev.model; break;
+    case 'session_resumed': label='resumed'; detail='plan '+ev.plan; break;
+    default: label=ev.type; detail=JSON.stringify(ev).slice(0,80);
+  }
+  return `<div><span class="t">${t}</span><span class="e">${label}</span><span class="d ${cls}">${detail}</span></div>`;
+}
+async function refreshTimeline(){
+  try{
+    const d = await (await fetch('/api/timeline?session_id='+sid()+'&limit=150')).json();
+    tl = d.timeline;
+    $('timelineList').innerHTML = tl.slice().reverse().map(timelineEntry).join('') || '<div>(no events yet)</div>';
+  }catch(e){}
+}
+
+// ---------- observer / devices / registry / memory / logs ----------
+async function refreshObserver(){
+  try{
+    const d = await (await fetch('/api/observer?n=30')).json();
+    if(!d.observations.length){ $('observerList').innerHTML = '<div>(no observations yet)</div>'; return; }
+    $('observerList').innerHTML = d.observations.slice().reverse().map(o=>
+      `<div><span style="color:${o.ok?'#34d399':'#f87171'}">${o.ok?'✓':'✗'}</span> [${o.source}] ${o.message}</div>`
+    ).join('');
+  }catch(e){}
+}
+async function refreshDevices(){
+  try{
+    const d = await (await fetch('/api/devices')).json();
+    $('devicesList').innerHTML = Object.entries(d).map(([k,v])=>
+      `<li>${k} — ${v.online?'🟢 online':'⚫ offline'} <span style="color:#6b7280">(${v.transport||''}${v.serial?' · '+v.serial:''})</span></li>`).join('');
+  }catch(e){}
+}
+async function refreshRegistry(){
+  try{
+    const d = await (await fetch('/api/tools')).json();
+    $('toolsList').innerHTML = d.tools.map(t=>`<li>${t}</li>`).join('');
+    $('chip-tools').textContent = 'tools ' + d.count;
+  }catch(e){}
 }
 async function refreshLogs(){
   try{
-    const d = await (await fetch('/api/logs?lines=40')).json();
+    const d = await (await fetch('/api/logs?lines=60')).json();
     $('logCount').textContent = d.logs.length;
     $('logLines').innerHTML = d.logs.slice().reverse().map(l=>{
-      let pretty = l;
-      try{ const o = JSON.parse(l); pretty = (o.ts||'').slice(11,19)+' · '+o.level+' · '+(o.event||'') + (o.tool? ' · '+o.tool : '') + (o.provider? ' · '+o.provider : ''); }catch(e){}
+      let pretty=l;
+      try{const o=JSON.parse(l);pretty=(o.ts||'').slice(11,19)+' · '+o.level+' · '+(o.event||'')+(o.tool?' · '+o.tool:'')+(o.provider?' · '+o.provider:'');}catch(e){}
       return '<div>'+pretty+'</div>';
     }).join('');
-  }catch(e){ console.log('logs err', e); }
+  }catch(e){}
 }
-
-// ---- runtime / executor / observer / token totals ----
+async function refreshMemory(){
+  try{
+    const d = await (await fetch('/api/memory/facts?session_id='+sid())).json();
+    $('memoryList').innerHTML = (d.facts.length? d.facts.map(f=>`<li>${f}</li>`).join('') : '<li>(no facts yet)</li>');
+  }catch(e){}
+}
+async function refreshRuntime(){
+  try{
+    const d = await (await fetch('/api/runtime')).json();
+    $('chip-rt').textContent = 'rt ' + d.uptime_s.toFixed(0) + 's';
+    if(d.provider === 'mock'){
+      // never silently show a mock: surface it loudly
+      $('chip-provider').textContent = '⚠ NO API KEY — pipeline limited';
+      $('chip-provider').className = 'chip red';
+      $('chip-model').textContent = 'model mock';
+    } else {
+      $('chip-provider').textContent = 'provider ' + d.provider;
+      $('chip-provider').className = 'chip on';
+      $('chip-model').textContent = 'model ' + d.model;
+    }
+    $('chip-ws').textContent = 'WS ● ' + d.ws_clients;
+  }catch(e){}
+}
 async function refreshExecutor(){
   try{
     const d = await (await fetch('/api/executor?session_id='+sid())).json();
@@ -285,26 +369,14 @@ async function refreshExecutor(){
     el.className = 'chip' + (d.phase==='executing' ? ' on' : '');
   }catch(e){}
 }
-async function refreshRuntime(){
-  try{
-    const d = await (await fetch('/api/runtime')).json();
-    $('chip-rt').textContent = 'rt ' + d.uptime_s.toFixed(0) + 's · ' + d.provider;
-    $('chip-provider').textContent = 'provider ' + d.provider;
-    $('chip-model').textContent = 'model ' + d.model;
-    $('chip-ws').textContent = 'WS ● ' + d.ws_clients;
-  }catch(e){}
+async function ksearch(){
+  const q = $('kq').value.trim(); if(!q) return;
+  const r = await (await fetch('/api/knowledge/search?q='+encodeURIComponent(q)+'&top_k=5')).json();
+  $('knowledgeList').innerHTML = (r.hits.length? r.hits.map(h=>`<li>${h}</li>`).join('') : '<li>(no hits)</li>');
 }
-async function refreshObserver(){
-  try{
-    const d = await (await fetch('/api/observer?n=25')).json();
-    if(!d.observations.length){ $('observerList').innerHTML = '<div>(no observations yet)</div>'; return; }
-    $('observerList').innerHTML = d.observations.slice().reverse().map(o=>
-      `<div><span style="color:${o.ok?'#34d399':'#f87171'}">${o.ok?'✓':'✗'}</span> [${o.source}] ${o.message}</div>`
-    ).join('');
-  }catch(e){}
-}
+function refreshAll(){ refreshLiveExec(); refreshToolLive(); refreshTimeline(); refreshObserver(); refreshDevices(); refreshRegistry(); refreshLogs(); refreshMemory(); refreshRuntime(); refreshExecutor(); }
 
-// ---- websocket: chat + live events ----
+// ---------- WebSocket: live events drive the timeline in real time ----------
 function connectWS(){
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws`);
@@ -313,33 +385,26 @@ function connectWS(){
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data);
     if(m.type === 'reply'){
-      // remove typing if present
       const t = $('typing'); if(t) t.remove();
-      addMsg(m.response, 'bot'); refresh();
-      refreshPlanner(); refreshExecutions(); refreshLogs(); refreshExecutor(); refreshRuntime(); refreshObserver();
-      return;
+      addMsg(m.response, 'bot'); refreshAll(); return;
     }
-    // event feed
-    const log = $('eventlog');
-    const d = document.createElement('div');
-    d.textContent = `${new Date(m.ts*1000).toLocaleTimeString()} · ${m.type}${m.provider?' · '+m.provider:''}${m.tool?' · '+m.tool:''}`;
-    log.prepend(d);
-    while(log.children.length > 60) log.lastChild.remove();
+    // event → prepend to timeline live + refresh execution/tool panels
+    if(m.type && m.type !== 'pong'){
+      const d = document.createElement('div');
+      d.innerHTML = timelineEntry(m);
+      const list = $('timelineList');
+      list.prepend(d);
+      while(list.children.length > 150) list.lastChild.remove();
+    }
+    if(['step_started','tool_started','tool_result','observer_result','step_completed','step_failed'].includes(m.type)){
+      refreshLiveExec(); refreshToolLive();
+    }
   };
 }
-// chat over ws (fallback path kept simple: use REST above; ws chat works too)
-async function init(){
-  const h = await (await fetch('/api/health')).json();
-  const pc = await (await fetch('/api/provider/check', {method:'POST'})).json();
-  const active = pc.providers.find(p=>!p.in_cooldown && p.key_configured);
-  $('chip-provider').textContent = 'provider ' + (active? active.provider : (pc.providers[0]||{}).provider || '—');
-  $('chip-model').textContent = 'model ' + ((active||{}).model || 'mock');
-  refresh();
-}
-refreshPlanner(); refreshExecutions(); refreshLogs(); refreshExecutor(); refreshRuntime(); refreshObserver();
-setInterval(()=>{ refreshPlanner(); refreshExecutions(); refreshLogs(); refreshExecutor(); refreshRuntime(); refreshObserver(); }, 5000);
+
+refreshAll();
+setInterval(refreshAll, 2000);
 connectWS();
-init();
 </script>
 </body>
 </html>

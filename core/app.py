@@ -131,8 +131,10 @@ class AgentApp:
             max_cost=config.get_float("executor.max_cost", 1.0),
             max_recursion_depth=config.get_int("executor.max_recursion_depth", 3),
         )
+        from tools.monitor import ToolMonitor
+        tool_monitor = ToolMonitor()
         executor = Executor(db, llm, memory, registry, observers, policy,
-                           devices=devices, bus=bus)
+                           devices=devices, bus=bus, monitor=tool_monitor)
 
         # plugins: auto-discover plugins/ and register their tools (Phase 8)
         plugins = PluginManager(config.root / "plugins")
@@ -144,6 +146,7 @@ class AgentApp:
         app = cls(config, db, bus, memory, llm, registry, planner, devices,
                   orchestrator, executor, observers, permissions, reasoner)
         app.plugins = plugins
+        app.tool_monitor = tool_monitor
 
         if seed_demo:
             seed_demo_memory(memory)
