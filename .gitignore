@@ -25,3 +25,9 @@ __pycache__/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Coverage / dev artifacts
+.coverage
+.coveragerc
+htmlcov/
+.pytest_cache/
