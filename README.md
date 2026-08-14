@@ -1,8 +1,33 @@
-# AgentCore — Your Desktop AI Agent
+# AgentCore — Your Personal AI Agent
 
-AgentCore turns your Windows laptop into a personal AI agent that can manage
-your tasks, browse the web, work with files, and control your Android phone —
-all from one console. **It installs and bootstraps itself** — no manual setup.
+> **“A personal computer agent that I talk to.”** AgentCore runs on your
+> Windows laptop, can control your Android phone, and is **voice-first**:
+> speak, it listens, thinks, acts, verifies — and answers out loud. Chat is
+> the secondary transcript/context view. **It installs and bootstraps
+> itself** — no manual setup.
+
+---
+
+## Primary interface: Voice
+
+```
+Microphone → Speech-to-Text → AgentCore (reason/plan/execute/verify)
+    → response → Text-to-Speech → Speaker        (also in the chat transcript)
+```
+
+| Action | Command |
+|---|---|
+| One speak→hear cycle | `python main.py voice` |
+| Keep listening | `python main.py voice --loop` |
+| Voice health | shown when you run `python main.py voice` |
+
+- **STT** (default): faster-whisper — **offline, free, no API key** (model
+  auto-downloads once). Alternative: OpenRouter Whisper (needs audio balance).
+- **TTS** (default): Edge neural voices (free, high quality). Fallback:
+  Windows SAPI5 offline.
+- No microphone? AgentCore reports it honestly and the chat still works.
+- Wake word / continuous listening are deliberately deferred until the basic
+  pipeline is reliable.
 
 ---
 
@@ -28,12 +53,14 @@ all from one console. **It installs and bootstraps itself** — no manual setup.
 | Open the console | it opens http://localhost:8000 automatically |
 | Health check | `python main.py doctor` |
 | Interactive chat | `python main.py chat` |
+| Personal briefing | `python main.py briefing` |
+| List saved ideas/websites | `python main.py saved [kind]` |
 
 On first launch AgentCore automatically: creates `.venv`, installs
 dependencies, installs the Playwright browser, creates the workspace, and
 initializes the database — then starts. You never do this manually.
 
-**Try saying:**
+**Try saying (or speaking):**
 ```
 what time is it?
 weather in Jaipur
@@ -43,12 +70,20 @@ open youtube
 open the browser to example.com and screenshot it
 create a folder with a file, write, verify and delete it
 open youtube on my phone        (requires Android setup)
+save this website https://openrouter.ai — useful for AI and rapid prototyping
+save this idea: build a UPI payment announcer
+what did i save?
+brief me
 ```
 
 > **Deterministic answers need no AI.** Single-intent requests
-> (time, weather, todo, clipboard, open-youtube) are answered directly by
-> their tools — the LLM is never invoked for them, so they work offline and
-> never hallucinate.
+> (time, weather, todo, clipboard, open-youtube, save/brief) are answered
+> directly by their tools — the LLM is never invoked for them, so they work
+> offline and never hallucinate.
+
+> **Task continuation.** Follow-ups modify the active task instead of
+> starting a new one: “Open YouTube.” → “On my phone.” re-runs the task on
+> Android. Task state is persisted separately from the chat transcript.
 
 ---
 
@@ -94,11 +129,15 @@ READY when the browser cannot actually start (e.g. missing system libs).
 
 ## Supported Features
 
+- **Voice (primary)** — speak → STT → agent → TTS → speak; chat transcript mirrors it
 - **Life admin** — todos, habits, expenses (SQLite, self-healing storage)
 - **Filesystem** — create/write/read/verify/delete files in a sandbox
 - **Weather** — real current weather for any city (Open-Meteo, no API key)
 - **Clipboard** — set/get the desktop clipboard
 - **Browser** — open, navigate, verify URL, screenshot (real Chromium)
+- **Personal memory** — “save this website / save this idea: …” → structured
+  records (URL, purpose, usage, tags, notes); concise startup briefing
+- **Task continuity** — “on my phone” after “open youtube” switches target
 - **Windows** — launch apps, detect/focus/close processes
 - **Android** — wake, unlock, open apps/YouTube, notifications, screenshots,
   UI control (real ADB; optional)

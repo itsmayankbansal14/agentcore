@@ -37,6 +37,12 @@ class DirectToolRouter:
         low = " ".join((goal or "").lower().split())
         if not low:
             return None
+        # personal-memory commands are checked FIRST: their payload is a
+        # description, not a second intent — "save this website … and I could
+        # use it for X" must not be blocked by the complexity guard.
+        personal = self._route_personal(low, goal=goal)
+        if personal is not None:
+            return personal
         # single-intent only: multi-command goals go through the planner/LLM
         if _COMPLEX.search(low):
             return None
@@ -82,6 +88,28 @@ class DirectToolRouter:
 
         return None
 
+    def _route_personal(self, low: str, goal: str = "") -> list[tuple[str, dict[str, Any]]] | None:
+        """Deterministic personal-memory commands. Returns None when the goal
+        is not a personal command (caller continues normal routing).
+        Matching runs on the lowercased goal; EXTRACTION uses the original
+        text so proper nouns (UPI, OpenRouter) keep their case."""
+        orig = goal or low
+        if low.startswith(("save this website", "save the website")):
+            calls = self._save_website(orig)
+            return calls  # None → not parseable → LLM path (has the tool)
+        if low.startswith(("save this idea", "save an idea", "save the idea",
+                           "save idea")):
+            return self._save_idea(orig)
+        if low.startswith(("save this note", "save a note", "save note")):
+            return self._save_note(orig)
+        if re.search(r"\b(list|show|get)\b.*\bsaved\b|"
+                     r"what (?:did|have|do) i (?:save|saved|have)\b", low):
+            return [("saved_list", {})]
+        if re.search(r"\b(briefing|brief me|what should i know|what's new|"
+                     r"what do you remember)\b", low):
+            return [("personal_briefing", {})]
+        return None
+
     # -- param extraction ------------------------------------------------
     @staticmethod
     def _city(low: str) -> str:
@@ -115,6 +143,50 @@ class DirectToolRouter:
         q = re.sub(r"\b(the|and|please|can you|just)\b", " ", q)
         q = re.sub(r"\s+", " ", q).strip(" .")
         return q
+
+    # -- personal memory extraction ----------------------------------------
+    @staticmethod
+    def _save_website(text: str) -> list[tuple[str, dict[str, Any]]] | None:
+        m = re.search(r"(https?://\S+|www\.\S+)", text)
+        if not m:
+            return None     # no URL → let the LLM path handle it
+        url = m.group(1).rstrip(".,;")
+        tail = text[m.end():].strip(" .,;")
+        # name = the website's domain, prettified
+        host = re.sub(r"^https?://(www\.)?", "", url).split("/")[0].split("?")[0]
+        name = host.replace(".", " ").title() if host else url
+        purpose = usage = ""
+        pm = re.search(
+            r"\b(?:useful|great|good|used)\s+for\s+([^.,;]+?)"
+            r"(?=\s+(?:and|so|which|that)\s+[a-z]|$)", tail, re.I)
+        if pm:
+            purpose = pm.group(1).strip()
+        um = re.search(r"\b(?:i\s+)?(?:could|can|want|plan|need|use|using)\s+"
+                       r"(?:it|this|them)?\s*(?:for|to)\s+([^.,;]+)", tail, re.I)
+        if um:
+            usage = um.group(1).strip()
+        # description: everything after the URL (kept verbatim)
+        description = tail or purpose
+        return [("save_website", {"url": url, "name": name,
+                                  "description": description,
+                                  "purpose": purpose, "usage": usage})]
+
+    @staticmethod
+    def _save_idea(text: str) -> list[tuple[str, dict[str, Any]]]:
+        rest = re.sub(r"^save (?:this |an |the )?idea\s*[:,\-]?\s*", "", text, flags=re.I)
+        title, _, desc = rest.partition(":")
+        title = title.strip().strip(".")
+        desc = desc.strip()
+        if not title:
+            title = desc
+            desc = ""
+        return [("save_idea", {"title": title, "description": desc})]
+
+    @staticmethod
+    def _save_note(text: str) -> list[tuple[str, dict[str, Any]]]:
+        rest = re.sub(r"^save (?:this |a )?note\s*[:,\-]?\s*", "", text, flags=re.I)
+        return [("save_note", {"title": rest[:60].strip(".") or "note",
+                               "body": rest})]
 
     @staticmethod
     def _clipboard(low: str) -> list[tuple[str, dict[str, Any]]]:
@@ -166,4 +238,20 @@ def describe(tool_name: str, result) -> str:
                 else f"❌ URL check failed: {d}")
     if tool_name == "android_open_youtube":
         return "📱 Opened YouTube on your phone."
+    if tool_name == "save_website":
+        return f"💾 Saved website “{d.get('name')}” — {d.get('url')}"
+    if tool_name == "save_idea":
+        return f"💡 Saved idea: “{d.get('title')}”"
+    if tool_name == "save_note":
+        return f"📝 Saved note: “{d.get('title')}”"
+    if tool_name == "saved_list":
+        items = d.get("items", [])
+        if not items:
+            return "🗂 Nothing saved yet."
+        lines = [f"  {i.get('id')}. [{i.get('kind')}] {i.get('title')}"
+                 + (f" — {i.get('url')}" if i.get("url") else "")
+                 for i in items]
+        return "🗂 Saved items:\n" + "\n".join(lines)
+    if tool_name == "personal_briefing":
+        return d.get("briefing", "(no briefing)")
     return str(d)

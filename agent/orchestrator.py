@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from typing import Any
 
@@ -39,13 +40,24 @@ SYSTEM_PROMPT_TEMPLATE = """You are {agent_name}, a desktop-first AI agent.
 - Active plan: {plan}
 """
 
+# A follow-up that MODIFIES the active task (target switch / correction) rather
+# than starting a new one. Only applies when a TaskState already exists.
+_CONTINUATION_MARKERS = (
+    r"\b(?:on|via|using|through|in)\s+(?:my|the|this)?\s*"
+    r"(?:phone|android|mobile|device|browser|chrome|firefox|edge|"
+    r"laptop|pc|computer|desktop|windows|this\s+pc)\b",
+    r"\b(?:no\s*)?(?:wait|actually|instead|rather)\b",
+    r"\b(?:do\s+it|yes|yeah|yep|ok|okay|go\s+ahead|sure)\b",
+    r"\b(?:re\s*-?\s*run|again|retry|resume|keep\s+going|continue)\b",
+)
+
 
 class AgentOrchestrator:
     def __init__(self, config: ConfigManager, bus: EventBus, db,
                  memory: MemoryManager, llm: LLMManager, registry: ToolRegistry,
                  planner: Planner, devices: DeviceManager, executor: Executor,
                  observers: ObserverManager, permissions: PermissionManager,
-                 target_resolver=None) -> None:
+                 target_resolver=None, task_state=None) -> None:
         self.cfg = config
         self.bus = bus
         self.db = db
@@ -58,6 +70,7 @@ class AgentOrchestrator:
         self.observers = observers
         self.permissions = permissions
         self.target_resolver = target_resolver
+        self.task_state = task_state      # agent.task_state.TaskStateStore | None
 
         # event wiring — the orchestrator coordinates by reacting
         bus.subscribe(EventType.TOOL_RESULT, self._on_tool_result)
@@ -96,18 +109,32 @@ class AgentOrchestrator:
         if stored:
             log.debug("facts stored from message", count=stored)
 
-        # TARGET RESOLUTION (before planning): decide the execution device
+        # TASK CONTINUATION: a follow-up fragment ("on my phone", "no, on the
+        # laptop") MODIFIES the active task instead of starting a new one.
+        # The follow-up text is still stored in the transcript above; the
+        # execution goal + target come from persisted TaskState + the modifier.
+        state = self.task_state.get(session_id) if self.task_state else None
+        effective_goal = text
+        if self._is_continuation(text, state):
+            effective_goal = state["last_goal"]
+            log.info("task continuation", follow_up=text[:60],
+                     base_goal=effective_goal[:60], session=session_id)
+
+        # TARGET RESOLUTION (before planning): decide the execution device.
+        # For a continuation, capability + intent are judged on the COMBINED
+        # text so "open youtube" + "on my phone" resolves to android.
         target = None
         if self.target_resolver is not None:
-            capability = self._capability_for(text)
-            target = self.target_resolver.resolve(text, capability, session_id)
+            probe = effective_goal if effective_goal == text else f"{effective_goal} {text}"
+            capability = self._capability_for(probe)
+            target = self.target_resolver.resolve(probe, capability, session_id)
             self.bus.emit(EventType.TARGET_RESOLVED,
                           target.to_dict(), session_id=session_id)
-            log.info("target resolved", device=target.device, goal=text[:60],
+            log.info("target resolved", device=target.device, goal=effective_goal[:60],
                      session=session_id)
 
         try:
-            plan, step = await self.planner.get_or_create(session_id, text)
+            plan, step = await self.planner.get_or_create(session_id, effective_goal)
         except Exception as e:  # noqa: BLE001 — planner failure classification
             info = classify(e, component="planner")
             info.suggestions = suggestions_for(info)
@@ -127,14 +154,33 @@ class AgentOrchestrator:
             return "I couldn't start a plan for that. Try rephrasing."
 
         outcome = await self.executor.run_step(
-            session_id, plan, step, text,
+            session_id, plan, step, effective_goal,
             system_prompt_builder=lambda sid, pl: self._build_system_prompt(sid, pl),
             plan_id=plan.id,
             plan_completer=self.planner.mark_plan_completed,
             next_step_provider=self.planner.next_step,
             target_device=target.device if target else "windows",
         )
+        # persist the ACTIVE TASK (structured, separate from the transcript)
+        if self.task_state is not None:
+            self.task_state.set(session_id, effective_goal,
+                                target.device if target else "windows",
+                                plan_id=plan.id, status=outcome.status)
         return self._outcome_to_text(outcome)
+
+    def _is_continuation(self, text: str, state: dict | None) -> bool:
+        """Is this message a follow-up that modifies the ACTIVE task?
+        Conservative: only when a TaskState exists AND the message carries a
+        target modifier ("on my phone"), a confirmation ("do it"), or a
+        retry signal. Other fragments (e.g. "no wait, high priority") are NOT
+        continuations — they fall to the LLM path, which has the full chat
+        transcript in context and can resolve them conversationally."""
+        if state is None or not state.get("last_goal"):
+            return False
+        low = " ".join(text.lower().split())
+        if not low:
+            return False
+        return any(re.search(p, low) for p in _CONTINUATION_MARKERS)
 
     def _capability_for(self, text: str) -> str:
         """Infer the capability family from the goal (used by Target Resolution).

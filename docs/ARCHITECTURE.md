@@ -93,13 +93,46 @@ build.bat                          # or: python scripts/build.py
 python main.py chat                # CLI REPL
 python main.py serve [port]        # dev console, no reload
 python main.py selfcheck           # boot verification
+python main.py voice               # PRIMARY interface: one speak→hear cycle
+python main.py voice --loop        # keep listening until Ctrl+C
+python main.py briefing            # concise personal briefing (recent ideas/sites)
+python main.py saved [kind]        # list personal memory
 ```
+
+## 4b. Voice (primary interface) + personal memory + task continuity
+
+- **Voice subsystem** (`voice/`) is separate from the agent runtime. It only
+  calls the public `orchestrator.handle_user_message()` — the Planner/Executor
+  never depend on microphone/speaker code. Voice input is normalized into the
+  SAME representation chat uses; every response also lands in the transcript.
+  Pipeline: `audio.input` (mic/WAV) → VAD (end-of-speech) → `stt` (faster-
+  whisper offline / OpenRouter / vosk) → agent → `tts` (edge / sapi) →
+  `audio.output` (miniaudio; honest save-to-cache when no device). Wake word
+  is a declared seam (`voice/wake/`) and explicitly deferred (disabled).
+- **Personal knowledge** (`memory/personal.py` + `tools/personal.py`): the
+  user's *intentional* memory — websites/ideas/resources/projects/notes/
+  discoveries as structured rows (`saved_items`). "save this website…" /
+  "save this idea: …" route deterministically (no LLM). `briefing()` is a
+  concise startup surface — never a dump.
+- **Task state** (`agent/task_state.py` + `task_state` table): the ACTIVE
+  task (last goal + resolved target + plan), persisted and structured —
+  NEVER reconstructed from the chat transcript. Follow-ups like
+  "on my phone" after "open youtube" modify the active task's target and
+  re-run it. Conservative detection: only target modifiers/confirmations;
+  other fragments ride the LLM path with transcript context.
 
 ## 5. Files
 
 **Added**
 - `launcher.py` — desktop launcher (runtime supervisor, browser, tray, graceful stop)
 - `docs/ARCHITECTURE.md` — this document
+- `voice/` — voice subsystem (audio input/VAD/output, stt fasterwhisper+
+  openrouter+vosk, tts edge+sapi, wake seam, manager)
+- `memory/personal.py` — personal knowledge store (saved_items)
+- `agent/task_state.py` — persisted task-state continuity store
+- `tools/personal.py` — save_website/save_idea/save_note/saved_list/briefing
+- `tests/integration/test_voice_pipeline.py`, `test_personal_memory.py`,
+  `test_task_continuation.py`
 
 **Modified**
 - `dashboard/app.py` — hot-reload support; `create_app()` is the single runtime entry

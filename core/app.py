@@ -97,6 +97,8 @@ class AgentApp:
         bus = EventBus()
         llm = LLMManager(config, bus=bus)
         memory = MemoryManager(db, config, llm=llm)
+        from memory.personal import PersonalMemory
+        personal = PersonalMemory(db)
         registry = ToolRegistry()
 
         sandbox = workspace.sandbox
@@ -104,6 +106,8 @@ class AgentApp:
         clipboard_tools.register_all(registry)
         fs_tools.register_all(registry, str(sandbox))
         knowledge_tools.register_all(registry, memory)
+        from tools import personal as personal_tools
+        personal_tools.register_all(registry, personal, memory=memory)
         todo_provider = TodoStorageProvider(SQLiteTodoStorage(db))
         life_tools.register_all(registry, db, todo_provider=todo_provider)
         # capability workflows (real implementations)
@@ -175,15 +179,20 @@ class AgentApp:
         plugins.load_all({"registry": registry, "app": None,
                           "db": db, "memory": memory, "devices": devices})
 
+        from agent.task_state import TaskStateStore
+        task_state = TaskStateStore(db)
         orchestrator = AgentOrchestrator(config, bus, db, memory, llm, registry,
                                          planner, devices, executor, observers,
-                                         permissions, target_resolver=target_resolver)
+                                         permissions, target_resolver=target_resolver,
+                                         task_state=task_state)
         app = cls(config, db, bus, memory, llm, registry, planner, devices,
                   orchestrator, executor, observers, permissions, reasoner)
         app.plugins = plugins
         app.tool_monitor = tool_monitor
         app.workspace = workspace
         app.direct_router = direct_router
+        app.personal = personal
+        app.task_state = task_state
         app.todo_provider = todo_provider
         app.recovery = recovery_policy
         app.tool_health = ToolHealthManager()

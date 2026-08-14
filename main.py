@@ -11,6 +11,10 @@ Usage:
   python main.py ingest <file|dir>    index files into the knowledge base
   python main.py search <query>       search indexed knowledge
   python main.py facts                show long-term memory facts
+  python main.py briefing             concise personal briefing (recent ideas/sites/tasks)
+  python main.py saved [kind]         list personal memory (website|idea|note|…)
+  python main.py voice                PRIMARY interface: one speak→hear cycle
+  python main.py voice --loop         keep listening until Ctrl+C
   python main.py                      DEV: bootstrap (venv/deps/playwright/workspace/db)
                                       then start the dev console at http://localhost:8000
   python main.py --launcher           PROD (simulate): desktop launcher — runtime + browser + tray
@@ -100,6 +104,55 @@ def cmd_facts(app: AgentApp, session_id: str) -> None:
         print("•", f)
 
 
+def cmd_briefing(app: AgentApp) -> None:
+    """Startup/personal briefing — concise, never a memory dump."""
+    print("\n" + "─" * 56)
+    print("  PERSONAL BRIEFING")
+    print("  " + "─" * 56)
+    print("  " + app.personal.briefing())
+    print("  " + "─" * 56)
+
+
+def cmd_saved(app: AgentApp, kind: str | None = None) -> None:
+    rows = app.personal.list(kind=kind, limit=40)
+    if not rows:
+        print(f"(nothing saved{'' if kind is None else f' of kind {kind!r}'})")
+        return
+    for r in rows:
+        line = f"  #{r['id']:<4} [{r['kind']:<9}] {r['title']}"
+        if r["url"]:
+            line += f"  {r['url']}"
+        if r["status"] != "new":
+            line += f"  [{r['status']}]"
+        print(line)
+    print(f"\n  {len(rows)} item(s)")
+
+
+def cmd_voice(app: AgentApp, loop: bool = False) -> None:
+    """PRIMARY interface: speak → hear. Uses the same normalized input as chat."""
+    from voice.manager import build_voice
+    vm = build_voice(app)
+    h = vm.health()
+    print("\n  Voice health:")
+    for comp, s in h.items():
+        mark = "✓" if s["state"] == "READY" else "✗"
+        print(f"    {mark} {comp:<11} {s['state']:<12} {s['detail']}")
+    if h["stt"]["state"] != "READY":
+        print(f"\n  ❌ STT not ready: {h['stt']['fix']}")
+        return
+    if h["microphone"]["state"] != "READY":
+        print(f"\n  ❌ No microphone available: {h['microphone']['detail']}")
+        return
+    print()
+    try:
+        if loop:
+            vm.run_loop()
+        else:
+            vm.run_once()
+    except Exception as e:  # noqa: BLE001 — voice must never crash with a traceback
+        print(f"\n  ❌ voice session error: {e}")
+
+
 def repl(app: AgentApp, session_id: str) -> None:
     print("AgentCore REPL — type your goal, 'resume', 'status', or 'quit'.\n")
     while True:
@@ -178,6 +231,12 @@ def main() -> None:
             # packaged AgentCore.exe → desktop launcher (starts runtime + browser + tray)
             _cmd_launcher()
             return
+        # startup briefing: concise personal memory surface (recent ideas,
+        # saved websites, items related to active work) — never a dump
+        try:
+            cmd_briefing(app)
+        except Exception:  # noqa: BLE001 — briefing must never block startup
+            pass
         # PRIMARY DEV ENTRY: `python main.py` → dev console at localhost:8000 (hot reload)
         _cmd_dev(port=8000, reload=True)
         return
@@ -205,6 +264,12 @@ def main() -> None:
             cmd_search(app, " ".join(args[1:]))
     elif args[0] == "facts":
         cmd_facts(app, session_id)
+    elif args[0] == "briefing":
+        cmd_briefing(app)
+    elif args[0] == "saved":
+        cmd_saved(app, args[1] if len(args) > 1 else None)
+    elif args[0] == "voice":
+        cmd_voice(app, loop="--loop" in args or "-l" in args)
     elif args[0] == "doctor":
         sys.exit(cmd_doctor(app))
     elif args[0] in ("selfcheck", "--selfcheck"):
