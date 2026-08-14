@@ -3,9 +3,11 @@ Self-bootstrapping entry: run BEFORE any third-party import. Uses only stdlib
 until dependencies are ensured.
 
 Sequence (auto, every start):
-  1. python version check (3.11/3.12+)
-  2. virtualenv: create .venv if missing and re-exec into it (skipped when
-     already bootstrapped or frozen/exe — bundled deps)
+  1. python version check (3.11 <= python < 3.13 — hard requirement)
+  2. virtualenv RULE: frozen → bundled runtime; interpreter inside
+     AgentCore/.venv → continue; otherwise create .venv (if missing) and
+     RE-EXEC main.py with the venv interpreter. Global Python with the
+     packages installed is NEVER treated as bootstrapped.
   3. dependencies: hash-gated requirements install + per-package missing check
   4. playwright: install chromium ONCE (marker file; gated on playwright dep)
   5. workspace: create workspace/logs/memory/database/cache/exports/temp
@@ -35,20 +37,39 @@ LOCK_DIR = ROOT / "data" / ".bootstrap"
 REQ_HASH_FILE = LOCK_DIR / "requirements.sha256"
 PLAYWRIGHT_MARKER = LOCK_DIR / "playwright.installed"
 
+# supported: Python >= 3.11 AND Python < 3.13 (3.13+ must be REJECTED)
 MIN_PY = (3, 11)
+MAX_PY_EXCLUSIVE = (3, 13)
 
 # core deps that indicate "already bootstrapped"
 CORE_DEPS = ["structlog", "fastapi", "sqlalchemy", "openai"]
 
 
 # ---------------------------------------------------------------------------
-# python version
+# python version (hard range: >= 3.11 AND < 3.13)
 # ---------------------------------------------------------------------------
 def check_python() -> dict:
     cur = sys.version_info[:2]
-    ok = cur >= MIN_PY
-    return {"name": "python", "ok": ok,
-            "detail": f"{platform.python_version()} (need >= {MIN_PY[0]}.{MIN_PY[1]})"}
+    ok = MIN_PY <= cur < MAX_PY_EXCLUSIVE
+    detail = (f"{platform.python_version()} "
+              f"(need >= {MIN_PY[0]}.{MIN_PY[1]} and < "
+              f"{MAX_PY_EXCLUSIVE[0]}.{MAX_PY_EXCLUSIVE[1]})")
+    if cur >= MAX_PY_EXCLUSIVE:
+        detail += " — Python 3.13+ is NOT supported, use 3.11 or 3.12"
+    return {"name": "python", "ok": ok, "detail": detail}
+
+
+# ---------------------------------------------------------------------------
+# venv membership — the ONLY acceptable interpreter is AgentCore/.venv
+# ---------------------------------------------------------------------------
+def _inside_project_venv() -> bool:
+    """True when the CURRENT interpreter belongs to AgentCore/.venv."""
+    if os.environ.get("AGENTCORE_IN_VENV") == "1":
+        return True
+    try:
+        return Path(sys.prefix).resolve().is_relative_to(VENV_DIR.resolve())
+    except Exception:  # noqa: BLE001
+        return str(Path(sys.prefix)).startswith(str(VENV_DIR))
 
 
 # ---------------------------------------------------------------------------
@@ -135,20 +156,23 @@ def ensure_dependencies() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# venv bootstrap (create + re-exec)
+# venv bootstrap (create + re-exec) — strict environment rule
 # ---------------------------------------------------------------------------
 def ensure_venv() -> dict:
-    """Create .venv if missing and RE-EXEC this script inside it.
-    Skips when: frozen (exe bundles deps), already inside the venv, or the
-    current interpreter already has the core deps (already bootstrapped)."""
+    """Environment rule:
+        IF frozen            → use the bundled runtime (deps ship in the exe)
+        ELIF running inside AgentCore/.venv → continue
+        ELSE                 → create AgentCore/.venv if missing, RE-EXEC
+                               main.py with the venv interpreter, and continue
+                               ONLY inside .venv.
+    A global Python that happens to have the dependencies installed is NEVER
+    treated as already bootstrapped."""
     if getattr(sys, "frozen", False):
         return {"name": "venv", "ok": True, "detail": "frozen (deps bundled)"}
-    if os.environ.get("AGENTCORE_IN_VENV") == "1":
+    if _inside_project_venv():
         return {"name": "venv", "ok": True, "detail": f"running inside {sys.prefix}"}
-    if deps_present():
-        return {"name": "venv", "ok": True, "detail": "already bootstrapped (core deps present)"}
 
-    # create the venv
+    # outside the project venv → create it (if missing) and re-exec
     if not VENV_DIR.exists():
         try:
             subprocess.run([sys.executable, "-m", "venv", str(VENV_DIR)],
@@ -162,8 +186,8 @@ def ensure_venv() -> dict:
         return {"name": "venv", "ok": False, "detail": ".venv python missing"}
 
     # re-exec into main.py inside the venv — main.py re-runs bootstrap
-    # (with AGENTCORE_IN_VENV=1 it skips venv creation and proceeds to deps,
-    # playwright, workspace, db, then launches the dashboard).
+    # (now AGENTCORE_IN_VENV=1 / inside-venv → continues to deps, playwright,
+    # workspace, db, then the primary interface).
     env = dict(os.environ)
     env["AGENTCORE_IN_VENV"] = "1"
     try:
