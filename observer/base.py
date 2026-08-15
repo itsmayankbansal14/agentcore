@@ -17,6 +17,11 @@ from typing import Any
 
 @dataclass
 class Observation:
+    """Separation of concerns:
+      - `message` is USER-VISIBLE (shown in the dashboard timeline).
+      - `data` is INTERNAL/developer detail — logged to the structured log,
+        never rendered in the UI.
+    """
     source: str                    # e.g. "filesystem", "time"
     ok: bool                       # True = condition satisfied
     data: dict[str, Any] = field(default_factory=dict)
@@ -24,7 +29,12 @@ class Observation:
     ts: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_context(self) -> str:
-        return f"[observation:{self.source}] {'✓' if self.ok else '✗'} {self.message} {self.data}"
+        # user-visible: message only — internal data is NOT exposed to the UI
+        return f"[observation:{self.source}] {'✓' if self.ok else '✗'} {self.message}"
+
+    def log_developer(self) -> str:
+        """Developer-facing detail — goes to the structured log, not the UI."""
+        return (f"{self.source} ok={self.ok} data={self.data} ts={self.ts}")
 
 
 class Observer(ABC):

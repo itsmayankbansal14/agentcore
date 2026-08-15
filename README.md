@@ -1,173 +1,202 @@
-# AgentCore — Desktop-First AI Agent Platform
+# AgentCore — Your Personal AI Agent
 
-Windows laptop = controller · Android phone = thin remote executor.
-LLM **only reasons**; tools act; SQLite remembers; the **task loop** is the center.
-
-> Test status: **105 checks passing** across 4 suites:
-> `tests/test_architecture.py` (47) · `tests/smoke.py` (37) · `tests/test_api.py` (13) ·
-> `scripts/test_live.py` (8, against real OpenRouter).
-
----
-
-## Features (implemented & tested — not aspirational)
-
-### Agent loop
-- Event-driven orchestrator that coordinates, never implements business logic.
-- Dedicated **Executor** owns the LLM↔tool loop, retries, timeouts, cancellation,
-  parallel independent steps, dependency ordering and execution history.
-- **ExecutionPolicy** budgets: `max_runtime_s`, `max_steps`, `max_cost`,
-  `max_tokens`, `max_retries`, `max_recursion_depth`, `step_timeout_s`.
-
-### Reasoning
-- **Reasoner interface** decouples planning from the LLM:
-  `LLMReasoner` (routes OpenAI/Gemini/Claude/DeepSeek/OpenRouter via LLMManager),
-  `LocalReasoner` (heuristic), `HumanReasoner` (interactive).
-- **Provider abstraction** behind `LLMManager.chat()` with automatic key
-  rotation + failover + conversation continuity (verified live: bad key →
-  cooldown → OpenRouter serves the same call).
-
-### Memory (4 layers)
-- STM rolling window with budget summarization · Working memory checkpoints ·
-  LTM facts (rule-based extraction, dedup by key, confidence) · Knowledge
-  index (txt/md/pdf, chunking, FTS5 lexical + vector search).
-- Canonical path: Conversation → SQLite → retrieve → summarize → build prompt → LLM.
-
-### Tasks & recovery
-- Task lifecycle state machine: Created → Planning → Executing → Waiting →
-  Observing → Retrying → Completed/Failed/Cancelled (strict transitions).
-- Crash-resume: RUNNING/WAITING steps → INTERRUPTED, continue from first actionable.
-- Persistent **execution history** (goal, plan, step, tool calls, errors,
-  duration, tokens, cost, result).
-
-### Observers
-- **Observer subsystem** verifies tool effects in the environment
-  (filesystem, time, network, clipboard, system, Android/ADB, screen-stub);
-  the planner consumes observations, not just raw tool outputs.
-
-### Safety & ops
-- **PermissionManager**: Allowed / Confirmation required / Denied (per-tool +
-  allowlist/denylist; confirm requires a UI hook — without one, confirm-tools deny).
-- SQLite **recovery**: integrity checks, online backups (`VACUUM INTO`),
-  recovery mode, additive column migration, versioned schema
-  (`PRAGMA user_version` + `database/migrations.py` rollback).
-- Sandboxed filesystem tools · `.env` in gitignore · `*.db*` ignored.
-
-### Control surface
-- FastAPI REST + WebSocket (`/ws` broadcasts live agent events) + web dashboard
-  (`python main.py serve` → http://localhost:9000). The `/ws` endpoint is the
-  future Android transport.
-
-### Tools (14 registered)
-`time_now` · `echo` · `fs_read/write/list` (sandboxed) · `knowledge_add/search` ·
-`todo_add/list/done` · `habit_add/check` · `expense_add/summary`
+> **“A personal computer agent that I talk to.”** AgentCore runs on your
+> Windows laptop, can control your Android phone, and is **voice-first**:
+> speak, it listens, thinks, acts, verifies — and answers out loud. Chat is
+> the secondary transcript/context view. **It installs and bootstraps
+> itself** — no manual setup.
 
 ---
 
-## Quick start
+## Primary interface: Voice
+
+```
+Microphone → Speech-to-Text → AgentCore (reason/plan/execute/verify)
+    → response → Text-to-Speech → Speaker        (also in the chat transcript)
+```
+
+| Action | Command |
+|---|---|
+| One speak→hear cycle | `python main.py voice` |
+| Keep listening | `python main.py voice --loop` |
+| Voice health | shown when you run `python main.py voice` |
+
+- **STT** (default): faster-whisper — **offline, free, no API key** (model
+  auto-downloads once). Alternative: OpenRouter Whisper (needs audio balance).
+- **TTS** (default): Edge neural voices (free, high quality). Fallback:
+  Windows SAPI5 offline.
+- No microphone? AgentCore reports it honestly and the chat still works.
+- Wake word / continuous listening are deliberately deferred until the basic
+  pipeline is reliable.
+
+---
+
+## Installation
+
+1. Install **Python 3.11 or 3.12** from https://www.python.org/downloads/
+   (tick **"Add Python to PATH"**).
+2. Extract the AgentCore package anywhere (e.g. `C:\AgentCore`).
+3. **Done.** Everything else is automatic on first launch.
+
+> Optional extras (both optional — AgentCore runs fine without them):
+> - **Android control**: enable Developer options + USB debugging on your phone.
+> - **API key**: for full AI answers, add `OPENROUTER_API_KEY=...` to `.env`
+>   (copy from `.env.example`).
+
+---
+
+## Quick Start
+
+| Action | Command |
+|---|---|
+| Launch (Windows) | double-click **`run.bat`** (or `AgentCore.exe`), or run `python main.py` |
+| Open the console | it opens http://localhost:8000 automatically |
+| Health check | `python main.py doctor` |
+| Interactive chat | `python main.py chat` |
+| Personal briefing | `python main.py briefing` |
+| List saved ideas/websites | `python main.py saved [kind]` |
+
+On first launch AgentCore automatically: creates `.venv`, installs
+dependencies, installs the Playwright browser, creates the workspace, and
+initializes the database — then starts. You never do this manually.
+
+**Try saying (or speaking):**
+```
+what time is it?
+weather in Jaipur
+add todo finish DSA high priority
+copy hello world to clipboard
+open youtube
+open the browser to example.com and screenshot it
+create a folder with a file, write, verify and delete it
+open youtube on my phone        (requires Android setup)
+save this website https://openrouter.ai — useful for AI and rapid prototyping
+save this idea: build a UPI payment announcer
+what did i save?
+brief me
+```
+
+> **Deterministic answers need no AI.** Single-intent requests
+> (time, weather, todo, clipboard, open-youtube, save/brief) are answered
+> directly by their tools — the LLM is never invoked for them, so they work
+> offline and never hallucinate.
+
+> **Task continuation.** Follow-ups modify the active task instead of
+> starting a new one: “Open YouTube.” → “On my phone.” re-runs the task on
+> Android. Task state is persisted separately from the chat transcript.
+
+---
+
+## Doctor Command
+
+`python main.py doctor` prints a full readiness report:
+
+```
+✓ python       READY      3.13
+✓ venv         READY      deps present (bootstrapped)
+✓ dependencies READY      all packages present
+✓ playwright   READY      (optional) chromium installed (marker)
+✓ adb          READY      (optional) adb transport available
+✓ sqlite       READY      WAL supported
+✓ openrouter   READY      API key configured
+✓ browser      READY      (optional) chromium launches
+✓ filesystem   READY      workspace writable
+✓ tools          51 tools registered
+✓ devices        windows=on, browser=on, android=off, adb=off
+✓ dashboard      served at localhost:8000 (python main.py)
+READY ✅
+```
+
+If anything is NOT READY, the report shows the exact fix (e.g.
+`fix: pip install playwright && python -m playwright install chromium`).
+The `browser` line runs a **real Chromium launch probe** — it never reports
+READY when the browser cannot actually start (e.g. missing system libs).
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `Python not found` | Install Python 3.11+ and tick "Add Python to PATH" |
+| Console won't open | `python main.py doctor` — check the report; ensure port 8000 is free |
+| "no adb device" | Enable USB debugging on the phone, run `adb connect <ip>:5555` |
+| Browser tools BROKEN | `python -m playwright install chromium` (or restart — bootstrap installs it once) |
+| No AI answers | Add `OPENROUTER_API_KEY=...` to `.env` (free at openrouter.ai/keys) |
+| Anything else | `python main.py doctor` shows the exact failing check + fix |
+
+---
+
+## Supported Features
+
+- **Voice (primary)** — speak → STT → agent → TTS → speak; chat transcript mirrors it
+- **Life admin** — todos, habits, expenses (SQLite, self-healing storage)
+- **Filesystem** — create/write/read/verify/delete files in a sandbox
+- **Weather** — real current weather for any city (Open-Meteo, no API key)
+- **Clipboard** — set/get the desktop clipboard
+- **Browser** — open, navigate, verify URL, screenshot (real Chromium)
+- **Personal memory** — “save this website / save this idea: …” → structured
+  records (URL, purpose, usage, tags, notes); concise startup briefing
+- **Task continuity** — “on my phone” after “open youtube” switches target
+- **Windows** — launch apps, detect/focus/close processes
+- **Android** — wake, unlock, open apps/YouTube, notifications, screenshots,
+  UI control (real ADB; optional)
+- **Web + knowledge** — search your indexed notes/PDFs
+- **Multi-provider AI** — OpenRouter / OpenAI / Gemini / Claude / DeepSeek
+  with automatic failover and key rotation
+- **Self-healing** — recoverable failures repair → retry → verify automatically
+- **Target resolution** — "on my phone" → Android; otherwise Windows by default
+- **Plugins** — drop a file in `plugins/` to add capabilities
+
+---
+
+## Android Setup
+
+1. Phone: Settings → About → tap "Build number" 7× (enables Developer options).
+2. Developer options → enable **USB debugging**.
+3. Connect via USB, then: `adb connect <phone-ip>:5555` (same Wi-Fi) —
+   or install our companion app from `devices/companion_app/`.
+4. `python main.py doctor` should show `adb READY`.
+
+---
+
+## Browser Setup
+
+AgentCore installs Chromium automatically on first launch (once). To force it:
+```
+python -m playwright install chromium
+```
+
+---
+
+## Known Limitations
+
+- **Android requires a real device or emulator** + USB debugging (not available
+  in sandboxes/headless environments — tools report UNAVAILABLE, not errors).
+- **Screenshots/UI-control on Android** need per-session grants (system dialogs).
+- **Focus window** needs a desktop session (not available headless).
+- Free-tier API models have rate limits (the runtime fails over automatically).
+
+---
+
+## Roadmap
+
+- [x] Self-bootstrapping (one command) · doctor · dependency/tool/device health
+- [x] Target resolution · self-healing · storage abstraction · observer authority
+- [x] Windows installer preparation (`installer/AgentCoreInstaller.iss`)
+- [ ] Signed `AgentCoreInstaller.exe` builds (CI)
+- [ ] Voice input/output
+- [ ] Cloud sync (Postgres adapter)
+
+---
+
+## Development (contributors)
 
 ```bash
-pip install -r requirements.txt   # or: uv sync
-cp .env.example .env              # add OPENROUTER_API_KEY (optional; mock works offline)
-python main.py whoami
-python main.py chat               # REPL
-python main.py serve              # dashboard → http://localhost:9000
-python main.py ingest notes/      # index knowledge
-python main.py search "binary search"
-python scripts/migrate_jarvis.py --jarvis ../jarvis   # import JARVIS JSON data
-python tests/smoke.py             # 37 core tests
-python tests/test_api.py          # 13 API tests
-python tests/test_architecture.py # 47 architecture tests
-python scripts/test_live.py       # 8 live tests (needs a key in .env)
+python main.py --skip-boot   # skip bootstrap for fast dev iterations
+python -m pytest tests/integration -m integration -v   # integration suite
+python scripts/build.py      # verify → install → re-verify → tests → package (quality-gated)
+python main.py doctor        # full readiness report
 ```
 
-## Build & release pipeline (hard gates)
-
-**The build NEVER continues after failed verification, and PyInstaller is
-only invoked after every check passes.**
-
-```
-VERIFY → INSTALL DEPS → RE-VERIFY → TESTS → PYINSTALLER --clean → SMOKE EXE → PACKAGE
-```
-
-```bash
-# Full gated pipeline
-python scripts/build.py
-
-# Control
-python scripts/verify_build.py           # pre-flight gate only (exit 1 on any FAIL)
-python scripts/verify_build.py --json    # machine-readable report
-python scripts/build.py --only verify    # single stage
-python scripts/build.py --no-exe         # skip PyInstaller + exe smoke (dev)
-```
-
-| Stage | What it does | Gate |
-|---|---|---|
-| **VERIFY** | python ≥ 3.11 · every dep importable · config present · assets present · DB opens · git rev (optional) | non-dependency FAIL → **abort now**; dependency-only FAIL → auto-install |
-| **INSTALL DEPS** | `python -m pip install -r requirements.txt` | pip failure → **abort** with clear message |
-| **RE-VERIFY** | same checks again | **any** remaining FAIL (incl. deps) → **abort** with the missing packages listed |
-| **TESTS** | 3 hermetic suites (47 + 37 + 13) | any failure → abort |
-| **PYINSTALLER** | `PyInstaller --clean --onefile --name AgentCore` | only reached if all above passed; failure → abort |
-| **SMOKE EXE** | runs the built binary with `--selfcheck` (boots app, registers tools, opens DB) | exit ≠ 0 or no `SELFCHECK OK` → abort |
-| **PACKAGE** | zips distributable → `dist/agentcore-<version>.zip` (excludes `.env`, `*.db*`, `data/`, `logs/`) | — |
-
-**Windows:** double-click `build.bat` — same gated pipeline, and it
-`exit /b 1` immediately if `verify_build.py` reports any failure.
-`build_exe.bat` delegates to it. Output: `dist\AgentCore.exe` (keep your
-`.env` next to it — it's not bundled on purpose).
-
-**Exit codes:** `verify_build.py` returns **non-zero whenever any required
-dependency is missing** (and on any other FAIL). `build.py` returns 1 and
-prints `❌ BUILD ABORTED at stage: …` the moment a gate fails.
-
-## Layout
-
-```
-agentcore/
-├─ agent/        orchestrator (coordination only)
-├─ reasoning/    Reasoner interface + LLM/Local/Human implementations
-├─ executor/     Executor (loop, retries, timeouts, cancel, parallel) + ExecutionPolicy
-├─ observer/     Observer subsystem (environmental verification)
-├─ core/         contracts, event bus, logging, permissions, composition root
-├─ config/       defaults.yaml + typed ConfigManager + secrets
-├─ database/     SQLite (WAL), models, migrations, recovery (backup/integrity)
-├─ devices/      Device ABC, WindowsDevice, AndroidDevice (protocol, Phase 5)
-├─ llm/          LLMManager → router (rotation/failover) → providers
-├─ memory/       STM/WM/LTM/knowledge + vector + indexer + extractor
-├─ planner/      plan DAG, step state machine, resume
-├─ tools/        searchable registry + local tools (sandboxed fs, life, knowledge)
-├─ api/          FastAPI REST + WebSocket control surface
-├─ ui/           web dashboard
-├─ scripts/      migrate_jarvis.py, test_live.py
-└─ main.py       CLI: chat | say | plan | resume | status | whoami | ingest | search | facts | serve
-```
-
-## Architecture decisions (why)
-
-- **LLM only reasons; tools act** — deterministic, auditable, testable.
-- **One `LLM.chat()` boundary + Reasoner seam** — provider swap or planner-engine
-  swap is a config/constructor change, not a rewrite.
-- **Executor owns execution** — the planner manages state, the executor runs
-  steps; no component absorbs the other's job.
-- **Observers verify** — "file created" is checked in the filesystem, not
-  trusted from a tool's return string.
-- **Event bus only for loose coupling** — multi-consumer broadcasts (UI + internals)
-  use events; single-consumer data flows use direct calls (documented in `core/bus.py`).
-- **Phone is a thin executor** — no reasoning on the phone; the `/ws` control
-  surface is already live for Phase 5.
-
-## Roadmap (future — not yet implemented)
-
-- **Phase 5** Android companion: WS transport + pairing + executors
-  (protocol + envelope + HMAC already designed in `devices/android.py`).
-- **Phase 6** Android v2: accessibility/UI control, file share, capability reporting.
-- **Phase 8** plugin system, multi-device, cloud deployment.
-- **Reflection memory** (Phase 4): lessons learned from retries/failures.
-- **Vector tool discovery** (Phase 4): replace string scoring when the registry
-  grows past ~100 tools.
-- **DI container** (Phase 4): only if constructor wiring becomes painful.
-- **Token streaming** to the dashboard (SSE is single-event for now).
-
-## Design doc
-
-Full architecture, diagrams, DB schema, protocol and trade-offs:
-`../agent_architecture.md`
+Architecture doc: `docs/ARCHITECTURE.md` · Ultimate guide: `docs/ULTIMATE_GUIDE.md`

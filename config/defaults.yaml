@@ -69,10 +69,24 @@ tools:
   denylist: []
   sandbox_root: ./data/sandbox
 
-tools:
-  allowlist: []           # empty = all registered tools permitted at their declared level
-  sandbox_root: ./data/sandbox
-
 devices:
   reconnect_backoff_s: [1, 2, 4, 8, 16]
   heartbeat_s: 20
+  adb_host: 127.0.0.1
+  adb_port: 5555
+
+voice:
+  # PRIMARY interface. stt: fasterwhisper (offline, free, DEFAULT) |
+  # openrouter (whisper via your OpenRouter key — needs audio balance) |
+  # vosk (offline, light). tts: edge (neural) | sapi (windows offline).
+  stt_provider: fasterwhisper
+  whisper_model: base.en          # tiny.en (faster) | base.en | small.en
+  stt_model: openai/whisper-1     # used only by the openrouter STT provider
+  vosk_model_path: data/voice/vosk-model
+  tts_provider: edge
+  tts_voice: en-US-ChristopherNeural
+  session_id: voice
+  sample_rate: 16000
+  silence_after_s: 1.2
+  max_record_s: 15.0
+  wake_word_enabled: false   # deferred until the basic pipeline is reliable

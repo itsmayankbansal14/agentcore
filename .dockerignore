@@ -1,0 +1,15 @@
+# keep the image lean + never bake secrets/build artifacts
+.git
+.env
+data/
+logs/
+dist/
+build/
+__pycache__/
+*.pyc
+*.db
+*.db-shm
+*.db-wal
+devices/companion_app/.gradle
+devices/companion_app/build
+tests/

@@ -159,6 +159,11 @@ class ToolExecution(Base):
     status: Mapped[str] = mapped_column(String, default="ok")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    # reliability (additive; populated on failure)
+    retries: Mapped[int] = mapped_column(Integer, default=0)
+    failure_class: Mapped[str | None] = mapped_column(String, nullable=True)
+    rollback: Mapped[str] = mapped_column(String, default="not_defined")
+    recovery_suggestions: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[str] = mapped_column(String, default=now)
     finished_at: Mapped[str | None] = mapped_column(String, nullable=True)
 
@@ -179,6 +184,9 @@ class Execution(Base):
     tokens_out: Mapped[int] = mapped_column(Integer, default=0)
     cost: Mapped[float] = mapped_column(Float, default=0.0)
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # reliability (additive; populated on failure)
+    failure_class: Mapped[str | None] = mapped_column(String, nullable=True)
+    recovery_suggestions: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[str] = mapped_column(String, default=now)
     finished_at: Mapped[str | None] = mapped_column(String, nullable=True)
 
@@ -255,3 +263,37 @@ class Expense(Base):
     category: Mapped[str] = mapped_column(String, default="general")
     note: Mapped[str] = mapped_column(String, default="")
     date: Mapped[str] = mapped_column(String, default=now)
+
+
+# ------------------------------------------------------------------ personal knowledge
+class SavedItem(Base):
+    """Intentional personal knowledge: websites, ideas, resources, projects,
+    notes, discoveries. Saved via "save this website…" / "save this idea…".
+    (Personal Memory — distinct from task/working memory.)"""
+    __tablename__ = "saved_items"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String, index=True)     # website|idea|resource|project|note|discovery
+    title: Mapped[str] = mapped_column(String)
+    url: Mapped[str] = mapped_column(String, default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    purpose: Mapped[str] = mapped_column(Text, default="")    # primary purpose
+    usage: Mapped[str] = mapped_column(Text, default="")      # intended usage
+    tags: Mapped[str] = mapped_column(String, default="")     # comma-separated
+    notes: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String, default="new", index=True)  # new|review|active|archived
+    created_at: Mapped[str] = mapped_column(String, default=now, index=True)
+
+
+# ------------------------------------------------------------------ task state (persistent, structured)
+class TaskState(Base):
+    """The user's ACTIVE task: last goal + resolved target + plan. Persisted
+    and structured — NEVER reconstructed from the chat transcript. The
+    Executor keeps using plan/step rows; this is only the orchestrator's
+    continuity anchor for follow-ups like "on my phone"."""
+    __tablename__ = "task_state"
+    session_id: Mapped[str] = mapped_column(String, primary_key=True)
+    last_goal: Mapped[str] = mapped_column(Text, default="")
+    last_target: Mapped[str] = mapped_column(String, default="windows")
+    last_plan_id: Mapped[str] = mapped_column(String, default="")
+    last_status: Mapped[str] = mapped_column(String, default="")
+    updated_at: Mapped[str] = mapped_column(String, default=now)

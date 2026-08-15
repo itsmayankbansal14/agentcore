@@ -20,6 +20,12 @@ log = structlog.get_logger("agentcore.database.recovery")
 # additive columns applied to existing DB files when missing
 _ADDITIVE_COLUMNS: list[tuple[str, str, str]] = [
     ("tool_executions", "duration_ms", "INTEGER DEFAULT 0"),
+    ("tool_executions", "retries", "INTEGER DEFAULT 0"),
+    ("tool_executions", "failure_class", "TEXT"),
+    ("tool_executions", "rollback", "TEXT DEFAULT 'not_defined'"),
+    ("tool_executions", "recovery_suggestions", "TEXT"),
+    ("executions", "failure_class", "TEXT"),
+    ("executions", "recovery_suggestions", "TEXT"),
 ]
 
 

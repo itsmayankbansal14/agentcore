@@ -11,7 +11,16 @@ Usage:
   python main.py ingest <file|dir>    index files into the knowledge base
   python main.py search <query>       search indexed knowledge
   python main.py facts                show long-term memory facts
-  python main.py serve                start the API + dashboard (port 9000)
+  python main.py briefing             concise personal briefing (recent ideas/sites/tasks)
+  python main.py saved [kind]         list personal memory (website|idea|note|…)
+  python main.py voice                PRIMARY interface: one speak→hear cycle
+  python main.py voice --loop         keep listening until Ctrl+C
+  python main.py                      DEV: bootstrap (venv/deps/playwright/workspace/db)
+                                      then start the dev console at http://localhost:8000
+  python main.py --launcher           PROD (simulate): desktop launcher — runtime + browser + tray
+  python main.py --dev / --no-reload  toggle hot reload for the dev console
+  python main.py chat                 interactive REPL
+  python main.py serve [port]         start the dev console (no reload; default 8000)
   python main.py selfcheck            verify the app boots (used by build smoke test)
   python main.py version              print version
 """
@@ -20,10 +29,12 @@ from __future__ import annotations
 import asyncio
 import sys
 
-from core.app import AgentApp
-
 
 def _app():
+    # LAZY import — core.app needs third-party deps, which bootstrap installs
+    # first. Importing at module level would crash on a clean machine before
+    # bootstrap runs.
+    from core.app import AgentApp
     return AgentApp.create()
 
 
@@ -93,6 +104,55 @@ def cmd_facts(app: AgentApp, session_id: str) -> None:
         print("•", f)
 
 
+def cmd_briefing(app: AgentApp) -> None:
+    """Startup/personal briefing — concise, never a memory dump."""
+    print("\n" + "─" * 56)
+    print("  PERSONAL BRIEFING")
+    print("  " + "─" * 56)
+    print("  " + app.personal.briefing())
+    print("  " + "─" * 56)
+
+
+def cmd_saved(app: AgentApp, kind: str | None = None) -> None:
+    rows = app.personal.list(kind=kind, limit=40)
+    if not rows:
+        print(f"(nothing saved{'' if kind is None else f' of kind {kind!r}'})")
+        return
+    for r in rows:
+        line = f"  #{r['id']:<4} [{r['kind']:<9}] {r['title']}"
+        if r["url"]:
+            line += f"  {r['url']}"
+        if r["status"] != "new":
+            line += f"  [{r['status']}]"
+        print(line)
+    print(f"\n  {len(rows)} item(s)")
+
+
+def cmd_voice(app: AgentApp, loop: bool = False) -> None:
+    """PRIMARY interface: speak → hear. Uses the same normalized input as chat."""
+    from voice.manager import build_voice
+    vm = build_voice(app)
+    h = vm.health()
+    print("\n  Voice health:")
+    for comp, s in h.items():
+        mark = "✓" if s["state"] == "READY" else "✗"
+        print(f"    {mark} {comp:<11} {s['state']:<12} {s['detail']}")
+    if h["stt"]["state"] != "READY":
+        print(f"\n  ❌ STT not ready: {h['stt']['fix']}")
+        return
+    if h["microphone"]["state"] != "READY":
+        print(f"\n  ❌ No microphone available: {h['microphone']['detail']}")
+        return
+    print()
+    try:
+        if loop:
+            vm.run_loop()
+        else:
+            vm.run_once()
+    except Exception as e:  # noqa: BLE001 — voice must never crash with a traceback
+        print(f"\n  ❌ voice session error: {e}")
+
+
 def repl(app: AgentApp, session_id: str) -> None:
     print("AgentCore REPL — type your goal, 'resume', 'status', or 'quit'.\n")
     while True:
@@ -120,12 +180,67 @@ def repl(app: AgentApp, session_id: str) -> None:
         print(f"\n🤖 {result}")
 
 
+FROZEN = bool(getattr(sys, "frozen", False))
+
+
+def _cmd_serve(app, port: int | None = None, reload: bool = False) -> None:
+    """Boot the dev console (thin dashboard) — primary entry point."""
+    from dashboard.app import run as run_dashboard
+    run_dashboard(app, port=port, reload=reload)
+
+
+def _cmd_dev(port: int | None = None, reload: bool = True) -> None:
+    """Development console at localhost:8000 with hot reload."""
+    from dashboard.app import run as run_dashboard
+    run_dashboard(None, port=port, reload=reload)
+
+
+def _cmd_launcher(port: int = 8000) -> None:
+    """Desktop launcher (AgentCore.exe production mode / --launcher simulation)."""
+    from launcher import run_launcher
+    sys.exit(run_launcher(port=port))
+
+
 def main() -> None:
-    args = sys.argv[1:]
+    raw_args = sys.argv[1:]
+    # strip the fast-dev flag BEFORE dispatch so `--skip-boot <cmd>` still works
+    args = [a for a in raw_args if a != "--skip-boot"]
+
+    # SELF-BOOTSTRAP: validate + initialize everything before starting
+    # (venv, deps, playwright, workspace, database, doctor). Never blocks
+    # on optional components (android/browser). --skip-boot for fast dev.
+    if "--skip-boot" not in raw_args:
+        import bootstrap
+        report = bootstrap.run()
+        print(bootstrap.render_report(report), flush=True)   # always visible
+        # hard stop only if Python is unsupported
+        if not report.get("python", {}).get("ok"):
+            sys.exit(1)
+
     session_id = "demo"
     app = _app()
 
-    if not args or args[0] == "chat":
+    if args and args[0] == "--launcher":
+        _cmd_launcher(port=int(args[1]) if len(args) > 1 and args[1].isdigit() else 8000)
+        return
+    if args and args[0] in ("--dev", "--no-reload"):
+        _cmd_dev(port=8000, reload="--no-reload" not in args)
+        return
+    if not args:
+        if FROZEN:
+            # packaged AgentCore.exe → desktop launcher (starts runtime + browser + tray)
+            _cmd_launcher()
+            return
+        # startup briefing: concise personal memory surface (recent ideas,
+        # saved websites, items related to active work) — never a dump
+        try:
+            cmd_briefing(app)
+        except Exception:  # noqa: BLE001 — briefing must never block startup
+            pass
+        # PRIMARY DEV ENTRY: `python main.py` → dev console at localhost:8000 (hot reload)
+        _cmd_dev(port=8000, reload=True)
+        return
+    if args[0] == "chat":
         repl(app, session_id)
     elif args[0] == "say":
         print(asyncio.run(app.orchestrator.handle_user_message(session_id, " ".join(args[1:]))))
@@ -149,6 +264,14 @@ def main() -> None:
             cmd_search(app, " ".join(args[1:]))
     elif args[0] == "facts":
         cmd_facts(app, session_id)
+    elif args[0] == "briefing":
+        cmd_briefing(app)
+    elif args[0] == "saved":
+        cmd_saved(app, args[1] if len(args) > 1 else None)
+    elif args[0] == "voice":
+        cmd_voice(app, loop="--loop" in args or "-l" in args)
+    elif args[0] == "doctor":
+        sys.exit(cmd_doctor(app))
     elif args[0] in ("selfcheck", "--selfcheck"):
         sys.exit(cmd_selfcheck(app))
     elif args[0] in ("version", "--version", "-v"):
@@ -159,14 +282,53 @@ def main() -> None:
         except Exception:
             print("AgentCore 0.1.0")
     elif args[0] == "serve":
-        import os
-        import uvicorn
-        from api.server import create_app
-        port = int(os.environ.get("AGENTCORE_PORT", "9000"))
-        print(f"🌐 AgentCore API + dashboard → http://localhost:{port}")
-        uvicorn.run(create_app(app), host="0.0.0.0", port=port, log_level="warning")
+        port = int(args[1]) if len(args) > 1 and args[1].isdigit() else None
+        _cmd_serve(app, port, reload=False)
     else:
         print(__doc__)
+
+
+def cmd_doctor(app=None) -> int:
+    """python main.py doctor — full readiness report + READY/NOT READY + fixes."""
+    from core.dependencies import DependencyManager
+    dm = DependencyManager()
+    deps = dm.scan()
+    # honest deep check: browser tools must actually LAUNCH chromium, not just
+    # have the package installed — never report READY when launch fails
+    deps["browser"] = dm.launch_probe_browser().to_dict()
+    print("\n  AgentCore — dependency health")
+    print("  " + "─" * 56)
+    icons = {"READY": "✓", "MISSING": "✗", "BROKEN": "✗", "INSTALLING": "…"}
+    required_broken = []
+    for name, d in deps.items():
+        mark = icons.get(d["state"], "?")
+        optional = " (optional)" if d.get("optional") else ""
+        print(f"  {mark} {name:<12} {d['state']:<10}{optional} {d['detail']}")
+        if d["state"] != "READY" and d["fix"]:
+            print(f"        fix: {d['fix']}")
+        if d["state"] != "READY" and not d.get("optional"):
+            required_broken.append(name)
+    print("  " + "─" * 56)
+    # runtime checks (tools/devices/dashboard)
+    runtime_ok = True
+    try:
+        if app is None:
+            from core.app import AgentApp
+            app = AgentApp.create()
+        print(f"  ✓ tools          {len(app.registry)} tools registered")
+        print(f"  ✓ devices        {', '.join(f'{d.name}=' + ('on' if d.health().get('online') else 'off') for d in app.devices.all())}")
+        # dashboard reachable?
+        import urllib.request, socket
+        s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+        print("  ✓ dashboard      served at localhost:8000 (python main.py)")
+    except Exception as e:  # noqa: BLE001
+        runtime_ok = False
+        print(f"  ✗ runtime        {e}")
+    ready = not required_broken and runtime_ok
+    print("  " + "─" * 56)
+    print("  READY ✅" if ready else
+          f"  NOT READY ❌ — fix: {', '.join(required_broken) or 'runtime'} (see fixes above)")
+    return 0 if ready else 1
 
 
 def cmd_selfcheck(app) -> int:

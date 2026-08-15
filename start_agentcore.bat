@@ -30,8 +30,8 @@ if errorlevel 1 (
 )
 
 REM --- start the agent + open the browser ---
-echo [ok] Starting dashboard at http://localhost:9000
-start "" http://localhost:9000
+echo [ok] Starting dashboard at http://localhost:8000
+start "" http://localhost:8000
 python main.py serve
 
 pause

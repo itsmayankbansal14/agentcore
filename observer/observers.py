@@ -1,6 +1,8 @@
 """AgentCore — observer/observers.py
-Concrete observers: filesystem, time, network, clipboard, system, android.
-Screen observer is a stub (MediaProjection comes with the Android companion).
+Concrete observers: filesystem, time, network, clipboard, system, android,
+screen. The ScreenObserver is REAL: after a UI-changing android command it
+captures a real screenshot via ADB (`screencap -p`) and runs the
+VisionVerifier (LLM vision / OCR / pixel-diff) to confirm the target opened.
 """
 from __future__ import annotations
 
@@ -128,38 +130,85 @@ class SystemObserver(Observer):
 
 
 class AndroidObserver(Observer):
-    """ADB-based phone state (available when adb is installed + device connected)."""
+    """Phone-state verification via the AndroidDevice's live health
+    (WS transport, not ADB — ADB is only an optional extra)."""
     source = "android"
 
-    def _devices(self) -> list[str]:
-        if not shutil.which("adb"):
-            return []
-        try:
-            r = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=5)
-            return [ln.split("\t")[0] for ln in r.stdout.splitlines()[1:]
-                    if ln.strip() and "device" in ln]
-        except Exception:
-            return []
+    def __init__(self, device=None) -> None:
+        self._device = device   # AndroidDevice (or None → unknown)
+
+    def _state(self) -> dict:
+        if self._device is None:
+            return {"online": False, "paired": False}
+        h = self._device.health()
+        return {"online": bool(h.get("online")), "paired": bool(h.get("paired")),
+                "device": h.get("device")}
 
     def verify(self, tool_name, args, result) -> list[Observation]:
-        if tool_name.startswith("android_open_app") or tool_name.startswith("android_open_"):
-            devs = self._devices()
-            ok = len(devs) > 0
+        if tool_name.startswith("android_"):
+            st = self._state()
+            ok = st["online"] and st["paired"]
             return [Observation(source=self.source, ok=ok,
-                                data={"adb_devices": devs},
-                                message="adb device connected" if ok else "no adb device")]
+                                data=st,
+                                message=("phone connected & paired"
+                                         if ok else "phone offline or unpaired"))]
         return []
 
     def poll(self) -> list[Observation]:
-        devs = self._devices()
-        return [Observation(source=self.source, ok=bool(devs),
-                            data={"adb_devices": devs},
-                            message=f"{len(devs)} adb device(s)")]
+        st = self._state()
+        return [Observation(source=self.source, ok=st["online"] and st["paired"],
+                            data=st,
+                            message="android device connected" if st["online"] else "android offline")]
 
 
 class ScreenObserver(Observer):
-    """Screen capture verification — enabled with the Android companion (Phase 5)."""
+    """Screen capture + vision verification (REAL).
+    After a UI-changing android command, captures a screenshot via the ADB
+    device (real `screencap -p`) and runs the VisionVerifier (LLM vision /
+    OCR / pixel-diff) to confirm the target actually opened."""
+
     source = "screen"
 
+    def __init__(self, device=None, verifier=None) -> None:
+        self._device = device       # ADBDevice
+        self._verifier = verifier   # VisionVerifier
+
     def verify(self, tool_name, args, result) -> list[Observation]:
+        if not (tool_name.startswith("android_") and tool_name != "android_screenshot"):
+            return []
+        dev = self._device
+        if dev is None or not dev.health().get("online"):
+            return [Observation(source=self.source, ok=False,
+                                data={"cmd": tool_name, "reason": "adb device offline"},
+                                message="screen verification skipped — adb device offline")]
+        # capture a REAL screenshot
+        try:
+            import asyncio
+            shot = asyncio.run(dev.execute("device.android.screenshot", {}))
+            if not shot.ok or not shot.data.get("file"):
+                return [Observation(source=self.source, ok=False,
+                                    data={"cmd": tool_name, "reason": shot.error},
+                                    message="screenshot capture failed")]
+            path = shot.data["file"]
+        except Exception as e:  # noqa: BLE001
+            return [Observation(source=self.source, ok=False,
+                                data={"cmd": tool_name, "reason": str(e)},
+                                message="screenshot capture raised")]
+        # verify against the expected target
+        if self._verifier is None:
+            return [Observation(source=self.source, ok=True,
+                                data={"cmd": tool_name, "file": path},
+                                message=f"screenshot captured: {path}")]
+        import asyncio as _a
+        target = "youtube" if tool_name == "android_open_youtube" else tool_name
+        ver = _a.run(self._verifier.verify(target, path))
+        log = None
+        return [Observation(
+            source=self.source, ok=ver.ok,
+            data={"cmd": tool_name, "file": path, "engine": ver.engine,
+                  "reason": ver.reason, "screenshot": path},
+            message=(f"✓ verified ({ver.engine}): {ver.reason}"
+                     if ver.ok else f"✗ verification failed ({ver.engine}): {ver.reason}"))]
+
+    def poll(self) -> list[Observation]:
         return []

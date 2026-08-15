@@ -187,6 +187,49 @@ def check_database(report: Report) -> None:
         report.add("database", "FAIL", f"db init failed: {e}")
 
 
+def check_integration(report: Report) -> None:
+    """Integration suite must collect and cover all 9 runtime boundaries."""
+    import subprocess, sys as _sys
+    required = {
+        "planner": "test_planner_executor.py",
+        "executor": "test_executor_tool.py",
+        "tool": "test_executor_tool.py",
+        "observer": "test_tool_observer_memory.py",
+        "memory": "test_tool_observer_memory.py",
+        "android": "test_android_workflow.py",
+        "windows": "test_windows_workflow.py",
+        "database": "test_database_recovery.py",
+        "permission": "test_permissions.py",
+        "provider": "test_provider_switching.py",
+        "capabilities": "test_capabilities.py",   # Windows/Browser/Filesystem/Android workflows
+        "self_healing": "test_self_healing.py",   # recovery policy, storage init, tool health
+        "target_resolution": "test_target_resolution.py",
+        "bootstrap": "test_bootstrap.py",
+    }
+    missing = []
+    for area, fname in required.items():
+        if not (ROOT / "tests" / "integration" / fname).exists():
+            missing.append(f"{area}->{fname}")
+    if missing:
+        report.add("integration", "FAIL",
+                   "missing integration test files: " + ", ".join(missing))
+        return
+    try:
+        r = subprocess.run([_sys.executable, "-m", "pytest",
+                            "tests/integration", "-m", "integration",
+                            "--collect-only"],
+                           cwd=ROOT, capture_output=True, text=True, timeout=60)
+        collected = r.stdout.count("::")
+        if r.returncode != 0 or collected == 0:
+            report.add("integration", "FAIL",
+                       f"pytest collect failed (rc={r.returncode})")
+        else:
+            report.add("integration", "PASS",
+                       f"{collected} integration tests collect; all 9 boundaries mapped")
+    except Exception as e:  # noqa: BLE001
+        report.add("integration", "FAIL", f"pytest unavailable: {e}")
+
+
 def check_git(report: Report) -> None:
     git_dir = ROOT / ".git"
     if not git_dir.exists():
@@ -211,6 +254,7 @@ CHECKS = {
     "config": check_config,
     "assets": check_assets,
     "database": check_database,
+    "integration": check_integration,
     "git": check_git,
 }
 

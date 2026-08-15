@@ -36,9 +36,12 @@ class ToolCall:
 
 @dataclass
 class LLMMessage:
-    """One message in the normalized conversation. Never provider-specific."""
+    """One message in the normalized conversation. Never provider-specific.
+    `content` may be a plain string OR a list of OpenAI-style content parts
+    (e.g. [{"type":"text","text":...},{"type":"image_url","image_url":{"url": data_uri}}])
+    so providers can do real vision."""
     role: Role
-    content: str | None = None
+    content: str | list | None = None
     tool_calls: list[ToolCall] | None = None   # assistant-only
     tool_call_id: str | None = None            # tool-result-only
 
@@ -88,6 +91,7 @@ class ToolResult:
     error: str | None = None
     tool: str = ""
     duration_ms: int = 0
+    attempts: int = 1            # how many tries this execution took
 
 
 # ---------------------------------------------------------------------------
@@ -95,12 +99,18 @@ class ToolResult:
 # ---------------------------------------------------------------------------
 class EventType(str, Enum):
     USER_MESSAGE_RECEIVED = "user_message_received"
+    TARGET_RESOLVED = "target_resolved"
     MESSAGE_ADDED = "message_added"
     PLAN_CREATED = "plan_created"
+    PLAN_FAILED = "plan_failed"
+    STEP_STARTED = "step_started"
     STEP_COMPLETED = "step_completed"
     STEP_FAILED = "step_failed"
     TOOL_STARTED = "tool_started"
+    RECOVERY_ATTEMPT = "recovery_attempt"
+    RECOVERY_FAILED = "recovery_failed"
     TOOL_RESULT = "tool_result"
+    OBSERVER_RESULT = "observer_result"
     PROVIDER_FAILED = "provider_failed"
     PROVIDER_SWITCHED = "provider_switched"
     DEVICE_OFFLINE = "device_offline"

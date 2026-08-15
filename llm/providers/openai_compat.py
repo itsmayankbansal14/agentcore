@@ -43,8 +43,8 @@ class OpenAICompatProvider(BaseProvider):
         out: list[dict[str, Any]] = []
         for m in messages:
             d: dict[str, Any] = {"role": _ROLE_MAP[m.role]}
-            if m.content:
-                d["content"] = m.content
+            if m.content is not None:
+                d["content"] = m.content   # str OR list of multimodal parts
             if m.tool_calls:
                 d["tool_calls"] = [{
                     "id": tc.id, "type": "function",
