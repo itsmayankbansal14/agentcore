@@ -109,21 +109,12 @@ class VoiceManager:
             return {"transcript": "", "response": "", "played": False, "status": "error", "error": str(e)[:200]}
 
     def run_once(self, session_id: str | None = None) -> dict:
-        """Synchronous wrapper for CLI boundary only.
-        
-        NOTE: This uses asyncio.run() and should ONLY be called from
-        non-async entry points (CLI commands, tests). Do not call from
-        within an existing event loop. Core runtime uses run_once_async().
-        """
+        """Synchronous wrapper for backward compatibility (CLI / tests)."""
         return asyncio.run(self.run_once_async(session_id))
 
     async def run_loop_async(self, session_id: str | None = None, wake: bool = False,
                              max_rounds: int | None = None) -> int:
-        """Async repeat cycles until Ctrl+C (or max_rounds for tests).
-        
-        This is the PRIMARY method for persistent voice runtime.
-        Caller must provide an event loop (e.g., VoiceRuntimeThread creates its own).
-        """
+        """Async repeat cycles until Ctrl+C (or max_rounds for tests)."""
         sid = session_id or self.session_id
         n = 0
         try:
@@ -139,13 +130,7 @@ class VoiceManager:
 
     def run_loop(self, session_id: str | None = None, wake: bool = False,
                  max_rounds: int | None = None) -> int:
-        """Synchronous wrapper for CLI boundary only.
-        
-        NOTE: This uses asyncio.run() and should ONLY be called from
-        non-async entry points (CLI commands, tests). Do not call from
-        within an existing event loop. Core runtime uses run_loop_async()
-        with a dedicated event loop (see VoiceRuntimeThread).
-        """
+        """Synchronous wrapper for backward compatibility (CLI/debug only)."""
         return asyncio.run(self.run_loop_async(session_id, wake, max_rounds))
 
 

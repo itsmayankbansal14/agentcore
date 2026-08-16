@@ -15,7 +15,8 @@ from . import SttProvider
 
 log = structlog.get_logger("agentcore.voice.stt.fasterwhisper")
 
-_DEFAULT_MODEL = "base.en"   # tiny.en faster / small.en more accurate
+_DEFAULT_MODEL_EN = "base.en"
+_DEFAULT_MODEL_MULTI = "base"   # multilingual default for auto / non-English
 
 
 class FasterWhisperStt(SttProvider):
@@ -23,7 +24,16 @@ class FasterWhisperStt(SttProvider):
 
     def __init__(self, config) -> None:
         self.cfg = config
-        self.model_name = config.get_str("voice.whisper_model", _DEFAULT_MODEL)
+
+        lang = config.get_str("voice.stt_language", "auto").lower()
+
+        # Choose appropriate default model based on language
+        if lang == "en":
+            default_model = _DEFAULT_MODEL_EN
+        else:
+            default_model = _DEFAULT_MODEL_MULTI
+
+        self.model_name = config.get_str("voice.whisper_model", default_model)
         self._model = None  # cached model instance (loaded once)
 
     def initialize(self) -> None:
@@ -62,8 +72,8 @@ class FasterWhisperStt(SttProvider):
         if self._model is None:
             raise RuntimeError("faster-whisper model not available")
 
-        lang = self.cfg.get_str("voice.stt_language", "auto")
-        lang_param = None if str(lang).lower() == "auto" else lang
+        lang = self.cfg.get_str("voice.stt_language", "auto").lower()
+        lang_param = None if lang == "auto" else lang
 
         segments, info = self._model.transcribe(
             audio_path,

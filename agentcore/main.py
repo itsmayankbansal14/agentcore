@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-import time
 
 
 def _app():
@@ -196,10 +195,10 @@ def _cmd_dev(port: int | None = None, reload: bool = True) -> None:
     run_dashboard(None, port=port, reload=reload)
 
 
-def _cmd_launcher(app, port: int = 8000, enable_voice: bool | None = None) -> None:
+def _cmd_launcher(app, port: int = 8000) -> None:
     """Desktop launcher (AgentCore.exe production mode / --launcher simulation)."""
     from launcher import run_launcher
-    sys.exit(run_launcher(app=app, port=port, enable_voice=enable_voice))
+    sys.exit(run_launcher(app=app, port=port))
 
 
 def main() -> None:
@@ -224,12 +223,12 @@ def main() -> None:
     if args and args[0] == "--launcher":
         # Phase 4: When voice.enable_on_launch = true (default),
         # the packaged AgentCore.exe will start persistent voice automatically.
-        _cmd_launcher(
+        from core.runtime_start import start_runtime_and_voice
+        return start_runtime_and_voice(
             app,
             port=int(args[1]) if len(args) > 1 and args[1].isdigit() else 8000,
             enable_voice=None,   # Let config decide
         )
-        return
     if args and args[0] in ("--dev", "--no-reload"):
         _cmd_dev(port=8000, reload="--no-reload" not in args)
         return
@@ -240,44 +239,12 @@ def main() -> None:
             # If voice fails, dashboard/runtime must stay alive and report clearly.
             _cmd_launcher(app, enable_voice=None)  # Let config decide (default true)
             return
-        # === PHASE 2 — Voice-First Normal Launch ===
-        # Normal launch (`python main.py`) starts the shared runtime + persistent voice.
-        # Dashboard is secondary at http://localhost:8000
+        # === PHASE 1 — Persistent Voice Runtime (default launch) ===
+        # Normal launch (`python main.py`) starts the persistent voice loop.
         # `python main.py voice` remains the explicit one-shot/debug mode.
-        # `python main.py serve` / `--dev` remain explicit dev dashboard mode.
-        print("AgentCore — starting voice-first runtime")
+        print("AgentCore — starting persistent voice runtime")
         try:
-            from launcher import start_runtime_and_voice
-            runtime, voice_runtime = start_runtime_and_voice(app, port=8000, enable_voice=None)
-            print(f"[main] ✅ runtime ready → http://localhost:8000")
-            if voice_runtime:
-                print("[main] 🎤 persistent voice started — speak naturally")
-                # Show briefing then wait for voice/runtime threads
-                try:
-                    cmd_briefing(app)
-                except Exception:
-                    pass
-                # Keep main thread alive while voice/runtime run
-                try:
-                    while runtime.is_alive() or (voice_runtime and voice_runtime.is_alive()):
-                        time.sleep(1)
-                except KeyboardInterrupt:
-                    print("\n[main] Ctrl+C received — shutting down…")
-            else:
-                print("[main] ⚠ VOICE: FAILED — dashboard available at http://localhost:8000")
-                try:
-                    cmd_briefing(app)
-                except Exception:
-                    pass
-                # Keep runtime alive
-                try:
-                    while runtime.is_alive():
-                        time.sleep(1)
-                except KeyboardInterrupt:
-                    print("\n[main] Ctrl+C received — shutting down…")
-            runtime.stop()
-            if voice_runtime:
-                voice_runtime.stop()
+            cmd_voice(app, loop=True)
         except Exception as e:  # noqa: BLE001
             print(f"Voice runtime failed: {e}")
             print("→ Falling back to dashboard at http://localhost:8000")

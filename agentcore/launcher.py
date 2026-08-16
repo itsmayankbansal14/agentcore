@@ -123,13 +123,10 @@ class VoiceRuntimeThread(threading.Thread):
             print("[voice] persistent voice runtime started")
             print("[voice] speak naturally — AgentCore is listening")
 
-            # Use dedicated event loop for async voice loop
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(self.voice.run_loop_async())
-            finally:
-                loop.close()
+            # Use dedicated event loop (no asyncio.run inside thread)
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
+            self.loop.run_until_complete(self.voice.run_loop_async())
 
         except Exception as exc:
             self.error = exc
@@ -161,118 +158,30 @@ def _tray_icon() -> "object | None":
     return img
 
 
-def start_runtime_and_voice(
-    app,
-    port: int = DEFAULT_PORT,
-    enable_voice: bool | None = None,
-) -> tuple[RuntimeServerThread, VoiceRuntimeThread | None]:
-    """Start the shared runtime server and optional voice runtime.
-    Returns (runtime_thread, voice_thread_or_None).
-    Caller is responsible for stopping threads and handling browser/tray/console.
-    """
-    # Read from config if not explicitly passed
-    if enable_voice is None:
-        try:
-            enable_voice = app.config.get_bool("voice.enable_on_launch", False)
-        except Exception:
-            enable_voice = False
-
-    runtime = RuntimeServerThread(app=app, port=port)
-    runtime.start()
-
-    if not runtime.wait_until_ready():
-        print("[launcher] ❌ runtime failed to start (is the port busy?)")
-        runtime.stop()
-        raise RuntimeError("Runtime failed to start")
-
-    print(f"[launcher] ✅ runtime ready → http://localhost:{port}")
-
-    voice_runtime = None
-    if enable_voice:
-        voice_runtime = VoiceRuntimeThread(app)
-        voice_runtime.start()
-        print("[launcher] voice runtime starting…")
-
-        # Give voice a moment to initialize and report status
-        time.sleep(1.8)
-        if voice_runtime and voice_runtime.error:
-            print("\n[launcher] ⚠ VOICE: FAILED")
-            print(f"[launcher] Voice error: {voice_runtime.error}")
-            print("[launcher] Dashboard/runtime will continue without voice.\n")
-            voice_runtime = None  # Prevent shutdown logic from trying to stop it
-
-    return runtime, voice_runtime
-
-
 def run_launcher(
     app=None,
     port: int = DEFAULT_PORT,
     open_browser: bool = True,
     tray: bool = True,
-    enable_voice: bool | None = None,   # Phase 4: Can be overridden
+    enable_voice: bool | None = None,
 ) -> int:
-    """Start the runtime + (optionally) persistent voice, open the dashboard, keep alive."""
+    """Start the runtime + persistent voice (when enabled).
+
+    This function now delegates to the shared startup path in core.runtime_start.
+    """
+    from core.runtime_start import start_runtime_and_voice
+
     if app is None:
         from core.app import AgentApp
         app = AgentApp.create()
 
-    url = f"http://localhost:{port}"
-    print("┌──────────────────────────────────────────────┐")
-    print("│  AgentCore — desktop runtime launcher        │")
-    print(f"│  dashboard → {url}          │")
-    print("└──────────────────────────────────────────────┘")
-
-    runtime, voice_runtime = start_runtime_and_voice(app, port, enable_voice)
-
-    if open_browser:
-        try:
-            webbrowser.open(url)
-            print("[launcher] opened dashboard in your default browser")
-        except Exception:  # noqa: BLE001
-            print("[launcher] could not open browser — visit manually:", url)
-
-    def stop_all():
-        if voice_runtime is not None:
-            try:
-                voice_runtime.stop()
-            except Exception:
-                pass
-        runtime.stop()
-
-    if tray:
-        try:
-            import pystray
-            from pystray import Menu, MenuItem
-        except Exception:  # noqa: BLE001
-            pystray = None
-        if pystray is not None:
-            img = _tray_icon()
-            icon = pystray.Icon(
-                "agentcore",
-                img or __import__("PIL").Image.new("RGBA", (1, 1), (124, 58, 237, 255)),
-                "AgentCore",
-                Menu(
-                    MenuItem("Open Dashboard", lambda: webbrowser.open(url)),
-                    MenuItem("Stop AgentCore", lambda: (stop_all(), icon.stop())),
-                ),
-            )
-            print("[launcher] running in system tray — right-click the icon to stop")
-            icon.run()          # blocks until icon.stop()
-            stop_all()
-            print("[launcher] stopped cleanly")
-            return 0
-
-    # no tray → console mode
-    print("[launcher] running in console mode — press Ctrl+C to stop")
-    try:
-        while runtime.is_alive() or (voice_runtime and voice_runtime.is_alive()):
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\n[launcher] Ctrl+C received — shutting down…")
-
-    stop_all()
-    print("[launcher] stopped cleanly")
-    return 0
+    return start_runtime_and_voice(
+        app,
+        port=port,
+        enable_voice=enable_voice,
+        open_browser=open_browser,
+        tray=tray,
+    )
 
 
 if __name__ == "__main__":

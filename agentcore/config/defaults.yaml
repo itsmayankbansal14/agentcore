@@ -80,9 +80,8 @@ voice:
   # openrouter (whisper via your OpenRouter key — needs audio balance) |
   # vosk (offline, light). tts: edge (neural) | sapi (windows offline).
   stt_provider: fasterwhisper
-  whisper_model: base          # tiny (faster) | base | small (multilingual); use base.en for English-only
-  stt_language: auto           # auto | en | hi (passed to faster-whisper; auto = language=None for detection)
-  stt_model: openai/whisper-1  # used only by the openrouter STT provider
+  whisper_model: base.en          # tiny.en (faster) | base.en | small.en
+  stt_model: openai/whisper-1     # used only by the openrouter STT provider
   vosk_model_path: data/voice/vosk-model
   tts_provider: edge
   tts_voice: en-US-ChristopherNeural

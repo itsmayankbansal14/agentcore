@@ -1,9 +1,0 @@
-[run]
-branch = True
-source = agent,api,core,config,database,devices,executor,llm,memory,observer,planner,reasoning,tools,vision,dashboard
-
-[report]
-show_missing = True
-skip_covered = True
-sort = cover
-fail_under = 40
