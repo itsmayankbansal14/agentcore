@@ -80,6 +80,11 @@ voice:
   # openrouter (whisper via your OpenRouter key — needs audio balance) |
   # vosk (offline, light). tts: edge (neural) | sapi (windows offline).
   stt_provider: fasterwhisper
+  # STT language: "auto" (multilingual model, default — picks the right
+  # model for any speech), "en" (English-only faster model), or any
+  # ISO-639-1 code like "hi" (handled by the multilingual model).
+  # See agentcore/voice/stt/fasterwhisper.py.
+  stt_language: auto
   whisper_model: base.en          # tiny.en (faster) | base.en | small.en
   stt_model: openai/whisper-1     # used only by the openrouter STT provider
   vosk_model_path: data/voice/vosk-model

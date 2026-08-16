@@ -1,0 +1,23 @@
+# AgentCore — root-level ignore rules.
+# The authoritative source tree lives under agentcore/. This file
+# defends the structural integrity of the repository (see TODO.md
+# "Repository integrity" section).
+
+# 1) Prevent accidental nested git repositories inside the source tree.
+#    The previous commit history (53bb10f, ed5e717) shows that agentcore
+#    was once registered as a submodule. That mistake must not recur.
+agentcore/.git/
+**/.git/
+
+# 2) Editor / OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 3) Coverage / dev artifacts (also covered in agentcore/.gitignore,
+#    but repeated here so the root is self-contained)
+.coverage
+htmlcov/
+.pytest_cache/
+*.egg-info/
