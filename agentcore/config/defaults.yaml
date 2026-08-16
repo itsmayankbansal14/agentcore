@@ -1,0 +1,96 @@
+# AgentCore defaults — overridable via config/local.yaml, then env vars, then secrets.
+app:
+  name: AgentCore
+  data_dir: ./data
+  log_dir: ./logs
+
+llm:
+  # Ordered fallback chain: first healthy provider wins.
+  provider_priority:
+    - openrouter
+    - openai
+    - gemini
+    - claude
+    - deepseek
+    - ollama
+  default_model:
+    openrouter: openai/gpt-4o-mini
+    openai: gpt-4o-mini
+    gemini: gemini-2.0-flash
+    claude: claude-3-5-haiku-latest
+    deepseek: deepseek-chat
+    ollama: qwen2.5:7b
+  base_url:
+    openrouter: https://openrouter.ai/api/v1
+    deepseek: https://api.deepseek.com/v1
+  headers:
+    openrouter:
+      HTTP-Referer: https://github.com/itsmayankbansal14/jarvis-and-friday-agents
+      X-Title: AgentCore
+  temperature: 0.7
+  max_tokens: 700
+  # Per-provider key rotation (multiple keys tried in order before failing over).
+  keys:
+    openai: []          # populated from env OPENAI_API_KEY or keyring
+    gemini: []
+    claude: []
+    deepseek: []
+  cooldown_seconds: 300   # how long a rate-limited key stays out of rotation
+  max_context_messages: 40
+
+memory:
+  stm_window_messages: 20
+  ltm_top_k: 8
+  knowledge_top_k: 5
+  summarize_on_overflow: true
+
+agent:
+  max_loop_iterations: 12
+  confirm_high_permission: true
+
+planner:
+  max_attempts: 3
+
+executor:
+  max_runtime_s: 120.0
+  max_steps: 8
+  max_cost: 1.0            # USD; 0 = unlimited
+  max_tokens: 50000
+  max_retries: 2
+  max_recursion_depth: 3
+  step_timeout_s: 90.0
+
+observer:
+  network_host: 1.1.1.1
+  poll_interval_s: 10
+
+tools:
+  allowlist: []            # empty = all tools allowed at their declared level
+  denylist: []
+  sandbox_root: ./data/sandbox
+
+devices:
+  reconnect_backoff_s: [1, 2, 4, 8, 16]
+  heartbeat_s: 20
+  adb_host: 127.0.0.1
+  adb_port: 5555
+
+voice:
+  # PRIMARY interface. stt: fasterwhisper (offline, free, DEFAULT) |
+  # openrouter (whisper via your OpenRouter key — needs audio balance) |
+  # vosk (offline, light). tts: edge (neural) | sapi (windows offline).
+  stt_provider: fasterwhisper
+  whisper_model: base          # tiny (faster) | base | small (multilingual); use base.en for English-only
+  stt_language: auto           # auto | en | hi (passed to faster-whisper; auto = language=None for detection)
+  stt_model: openai/whisper-1  # used only by the openrouter STT provider
+  vosk_model_path: data/voice/vosk-model
+  tts_provider: edge
+  tts_voice: en-US-ChristopherNeural
+  session_id: voice
+  sample_rate: 16000
+  silence_after_s: 1.2
+  max_record_s: 15.0
+  wake_word_enabled: false   # deferred until the basic pipeline is reliable
+
+  # Phase 4: Control whether persistent voice starts automatically in the launcher
+  enable_on_launch: true    # Packaged default: start persistent voice

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AgentCore Companion</string>
+    <string name="accessibility_desc">AgentCore UI control — lets your laptop tap, swipe and type on this phone. Enable only if you want remote UI control. No passwords or sensitive fields are ever read.</string>
+</resources>

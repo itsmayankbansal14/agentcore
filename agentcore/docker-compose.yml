@@ -1,0 +1,15 @@
+services:
+  agentcore:
+    build: .
+    container_name: agentcore
+    ports:
+      - "8000:8000"
+    environment:
+      # Inject secrets at deploy time — never bake into the image
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-openai/gpt-4o-mini}
+    volumes:
+      # persist data + logs on the host
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped

@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JARVIS • AI Agent OS</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'JetBrains Mono','Segoe UI',monospace;background:#020204;color:#e5e7eb;min-height:100vh;overflow-x:hidden;position:relative}
+body::before{content:'';position:fixed;top:0;left:0;right:0;bottom:0;background:radial-gradient(ellipse at 50% 0%, rgba(139,92,246,0.15) 0%, transparent 60%), radial-gradient(ellipse at 80% 80%, rgba(6,182,214,0.1) 0%, transparent 50%), linear-gradient(180deg,#020204 0%,#0a0a0f 100%);z-index:-2}
+.grid-bg{position:fixed;top:0;left:0;right:0;bottom:0;background-image:linear-gradient(rgba(139,92,246,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(139,92,246,0.03) 1px, transparent 1px);background-size:50px 50px;z-index:-1;opacity:0.5}
+.container{max-width:1400px;margin:0 auto;padding:16px;position:relative;z-index:1}
+header{display:flex;justify-content:space-between;align-items:center;padding:18px 0;border-bottom:1px solid rgba(139,92,246,0.2);margin-bottom:18px;backdrop-filter:blur(10px)}
+.logo-area{display:flex;align-items:center;gap:16px}
+.orb{width:54px;height:54px;border-radius:50%;background:radial-gradient(circle at 30% 30%, #a78bfa, #7c3aed 40%, #0a0a0f 75%);box-shadow:0 0 30px rgba(139,92,246,0.6), inset 0 0 20px rgba(255,255,255,0.2);position:relative;animation:float 4s ease-in-out infinite, glow 2s ease-in-out infinite alternate}
+.orb::after{content:'';position:absolute;top:50%;left:50%;width:8px;height:8px;background:white;border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 10px white}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+@keyframes glow{0%{box-shadow:0 0 20px rgba(139,92,246,0.5)}100%{box-shadow:0 0 40px rgba(139,92,246,0.8),0 0 60px rgba(6,182,214,0.3)}}
+.logo{font-size:26px;font-weight:900;letter-spacing:2px;background:linear-gradient(90deg,#fff,#a78bfa,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.sub{font-size:11px;color:#9ca3af;letter-spacing:1px;margin-top:2px}
+.sub span{color:#a78bfa}
+.status-cluster{display:flex;gap:10px;align-items:center}
+.chip{padding:6px 12px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:0.5px;border:1px solid rgba(139,92,246,0.3);background:rgba(17,17,25,0.8);backdrop-filter:blur(10px)}
+.chip.online{border-color:rgba(16,185,129,0.4);color:#10b981;background:rgba(16,185,129,0.1)}
+.chip.voice{border-color:rgba(6,182,214,0.4);color:#22d3ee;background:rgba(6,182,214,0.1)}
+.chip.model{border-color:rgba(139,92,246,0.4);color:#a78bfa;background:rgba(139,92,246,0.1)}
+
+.main-grid{display:grid;grid-template-columns:280px 1fr 320px;gap:16px}
+@media(max-width:1200px){.main-grid{grid-template-columns:1fr}}
+
+.panel{background:rgba(17,17,25,0.6);border:1px solid rgba(139,92,246,0.15);border-radius:16px;padding:16px;backdrop-filter:blur(12px);position:relative;overflow:hidden}
+.panel::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent, rgba(139,92,246,0.5), transparent)}
+.panel h3{font-size:12px;letter-spacing:1px;color:#a5b4fc;margin-bottom:12px;display:flex;align-items:center;gap:8px;text-transform:uppercase}
+.panel h3::before{content:'';width:3px;height:12px;background:linear-gradient(180deg,#8b5cf6,#06b6d4);border-radius:2px;display:inline-block}
+
+.agent-item{padding:10px;border-radius:10px;background:rgba(26,26,37,0.6);border:1px solid rgba(38,38,55,0.5);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;transition:all 0.2s}
+.agent-item:hover{border-color:rgba(139,92,246,0.4);transform:translateX(2px)}
+.agent-item.active{border-color:#8b5cf6;background:rgba(139,92,246,0.1)}
+.agent-dot{width:8px;height:8px;border-radius:50%;background:#10b981;box-shadow:0 0 8px #10b981;display:inline-block;margin-right:6px;animation:blink 2s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.4}}
+
+.chat-core{grid-row:span 2;display:flex;flex-direction:column;height:720px;background:rgba(10,10,15,0.7);border:1px solid rgba(139,92,246,0.2);border-radius:20px;overflow:hidden;backdrop-filter:blur(16px);position:relative}
+.chat-core::after{content:'';position:absolute;bottom:0;left:0;right:0;height:80px;background:linear-gradient(180deg,transparent, rgba(139,92,246,0.05));pointer-events:none}
+.chat-header{padding:14px 18px;border-bottom:1px solid rgba(139,92,246,0.15);display:flex;justify-content:space-between;align-items:center;background:rgba(17,17,25,0.8)}
+.waveform{display:flex;align-items:center;gap:2px;height:24px}
+.bar{width:3px;background:linear-gradient(180deg,#8b5cf6,#06b6d4);border-radius:2px;animation:wave 0.8s ease-in-out infinite}
+.bar:nth-child(2){animation-delay:0.1s;height:12px}
+.bar:nth-child(3){animation-delay:0.2s;height:18px}
+.bar:nth-child(4){animation-delay:0.3s;height:10px}
+.bar:nth-child(5){animation-delay:0.4s;height:16px}
+@keyframes wave{0%,100%{transform:scaleY(0.5)}50%{transform:scaleY(1)}}
+.bar.idle{animation:none;transform:scaleY(0.3);opacity:0.3}
+
+.messages{flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:14px;scroll-behavior:smooth}
+.msg{max-width:88%;padding:12px 14px;border-radius:14px;font-size:13px;line-height:1.5;white-space:pre-wrap;position:relative;animation:slideIn 0.3s ease}
+@keyframes slideIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.msg.user{align-self:flex-end;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:white;border-bottom-right-radius:4px;box-shadow:0 4px 20px rgba(124,58,237,0.3)}
+.msg.jarvis{align-self:flex-start;background:rgba(26,26,37,0.9);border:1px solid rgba(139,92,246,0.25);border-bottom-left-radius:4px;backdrop-filter:blur(8px)}
+.msg.friday{align-self:flex-start;background:rgba(26,37,37,0.9);border:1px solid rgba(6,182,214,0.25);border-bottom-left-radius:4px}
+.meta{font-size:10px;opacity:0.7;margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.voice-tag{padding:2px 6px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:0.5px}
+.voice-tag.jarvis{background:rgba(139,92,246,0.2);color:#a78bfa;border:1px solid rgba(139,92,246,0.3)}
+.voice-tag.friday{background:rgba(6,182,214,0.2);color:#22d3ee;border:1px solid rgba(6,182,214,0.3)}
+
+.input-area{padding:14px;background:rgba(15,15,22,0.9);border-top:1px solid rgba(139,92,246,0.15);display:flex;gap:8px;align-items:center}
+.input-area input{flex:1;background:rgba(26,26,37,0.8);border:1px solid rgba(42,42,58,0.8);color:white;padding:12px 14px;border-radius:12px;outline:none;font-size:13px;font-family:inherit;transition:all 0.2s}
+.input-area input:focus{border-color:#8b5cf6;box-shadow:0 0 0 3px rgba(139,92,246,0.15)}
+.btn{padding:10px 16px;border-radius:10px;border:none;font-weight:700;font-size:12px;cursor:pointer;transition:all 0.2s;letter-spacing:0.5px}
+.btn-primary{background:linear-gradient(135deg,#7c3aed,#4f46e5);color:white;box-shadow:0 4px 15px rgba(124,58,237,0.3)}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(124,58,237,0.4)}
+.btn-mic{width:44px;height:44px;border-radius:50%;background:rgba(31,41,55,0.8);border:1px solid rgba(42,42,58,0.8);color:#9ca3af;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s;position:relative}
+.btn-mic:hover{border-color:#7c3aed;color:white;transform:scale(1.05)}
+.btn-mic.listening{background:linear-gradient(135deg,#ef4444,#dc2626);border-color:#ef4444;color:white;animation:pulse 1.2s infinite;box-shadow:0 0 20px rgba(239,68,68,0.5)}
+.btn-mic.enabled{background:rgba(139,92,246,0.15);border-color:rgba(139,92,246,0.4);color:#a78bfa}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(239,68,68,0.7)}70%{box-shadow:0 0 0 12px rgba(239,68,68,0)}100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}}
+
+.quick{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.quick button{background:rgba(26,26,37,0.6);border:1px solid rgba(42,42,58,0.6);color:#9ca3af;padding:6px 10px;border-radius:20px;font-size:10px;cursor:pointer;transition:all 0.2s;letter-spacing:0.3px}
+.quick button:hover{border-color:#7c3aed;color:white;background:rgba(139,92,246,0.1)}
+
+.toggle-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(31,41,55,0.3);font-size:11px}
+.switch{width:36px;height:20px;background:#1f2937;border-radius:20px;position:relative;cursor:pointer;border:1px solid #2a2a3a;transition:all 0.2s}
+.switch.on{background:linear-gradient(135deg,#7c3aed,#4f46e5);border-color:#7c3aed}
+.switch::after{content:'';position:absolute;width:14px;height:14px;background:white;border-radius:50%;top:2px;left:2px;transition:all 0.2s}
+.switch.on::after{transform:translateX(16px)}
+.https-warn{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:10px;font-size:11px;color:#fca5a5;margin-bottom:12px}
+.https-ok{background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:10px;padding:10px;font-size:11px;color:#6ee7b7;margin-bottom:12px}
+</style>
+</head>
+<body>
+<div class="grid-bg"></div>
+<div class="container">
+<header>
+<div class="logo-area">
+<div class="orb"></div>
+<div>
+<div class="logo">JARVIS OS</div>
+<div class="sub"><span>AI AGENT</span> • Mentor JARVIS + Ava FRIDAY • Jaipur • <span id="secureStatus">Checking HTTPS...</span></div>
+</div>
+</div>
+<div class="status-cluster">
+<div class="chip online">● GPT-4o ONLINE</div>
+<div class="chip voice" id="voiceChip">🎙️ JARVIS</div>
+<div class="chip model">{{ config.model.split('/')[-1][:18] }}</div>
+</div>
+</header>
+
+<div id="httpsWarn" class="https-warn" style="display:none">
+⚠️ <b>Brave blocked mic because of HTTP / iframe</b> — Preview is HTTPS but inside iframe Brave blocks mic. 
+<button onclick="window.open(window.location.href, '_blank')" style="background:#ef4444;color:white;border:none;padding:4px 8px;border-radius:6px;font-size:10px;cursor:pointer;margin-left:8px">Open in New Tab (HTTPS) for Mic</button>
+<span style="margin-left:8px">Or on your laptop use http://localhost:5000 (localhost is allowed for mic even on HTTP)</span>
+</div>
+<div id="httpsOk" class="https-ok" style="display:none">
+✅ Secure Context: HTTPS detected, microphone should work. If Brave still blocks: Click 🔒 lock icon → Site settings → Allow Microphone. Or open in new tab.
+</div>
+
+<div class="main-grid">
+<!-- Left Panel: Agents -->
+<div style="display:flex;flex-direction:column;gap:16px">
+<div class="panel">
+<h3>🧠 Active AI Agents</h3>
+<div class="agent-item active"><div><span class="agent-dot"></span><b style="font-size:12px">CodeBuddy</b><div style="font-size:10px;color:#9ca3af">Mentor American JARVIS voice</div></div><span style="font-size:10px;color:#10b981">● Live</span></div>
+<div class="agent-item active"><div><span class="agent-dot"></span><b style="font-size:12px">LifeOS</b><div style="font-size:10px;color:#9ca3af">Ava FRIDAY voice</div></div><span style="font-size:10px;color:#10b981">● Live</span></div>
+<div class="agent-item active"><div><span class="agent-dot"></span><b style="font-size:12px">StudyGuru</b><div style="font-size:10px;color:#9ca3af">Mentor JARVIS voice</div></div><span style="font-size:10px;color:#10b981">● Live</span></div>
+<div style="margin-top:10px;padding:8px;background:rgba(139,92,246,0.08);border-radius:8px;font-size:10px;color:#9ca3af">
+<b style="color:#a78bfa">This is NOT a habit tracker.</b> It's a multi-agent AI OS like Iron Man's JARVIS - 3 specialized AIs with memory, tools, voice, and auto-routing.
+</div>
+</div>
+
+<div class="panel">
+<h3>🎯 Mission Control</h3>
+<div style="font-size:11px;color:#9ca3af;margin-bottom:8px">Your daily work - AI managed:</div>
+<div id="todoList" style="max-height:160px;overflow:auto">
+{% for t in todos %}
+<div style="padding:6px 0;border-bottom:1px solid rgba(31,41,55,0.3);font-size:11px;display:flex;gap:6px"><span style="color:#f59e0b">○</span><span style="text-decoration: {{ 'line-through' if t.done else 'none' }}">{{ t.task }}</span></div>
+{% else %}
+<div style="font-size:11px;color:#6b7280">No tasks. Say "Jarvis todo add finish DSA"</div>
+{% endfor %}
+</div>
+<div style="display:flex;gap:6px;margin-top:8px">
+<div style="flex:1;text-align:center;padding:6px;background:rgba(26,26,37,0.6);border-radius:8px"><div style="font-size:16px;color:#fff">{{ status.todos_pending }}</div><div style="font-size:9px;color:#9ca3af">PENDING</div></div>
+<div style="flex:1;text-align:center;padding:6px;background:rgba(26,26,37,0.6);border-radius:8px"><div style="font-size:16px;color:#fff">{{ status.habits_count }}</div><div style="font-size:9px;color:#9ca3af">HABITS</div></div>
+</div>
+</div>
+
+<div class="panel">
+<h3>🎛️ Voice Control (3 Toggles)</h3>
+<div class="toggle-row"><span>🎤 Microphone</span><div class="switch on" id="switch-mic" onclick="toggleSwitch('mic')"></div></div>
+<div class="toggle-row"><span>🔄 Voice Switching JARVIS/FRIDAY</span><div class="switch on" id="switch-vc" onclick="toggleSwitch('vc')"></div></div>
+<div class="toggle-row"><span>🔊 Voice Response</span><div class="switch on" id="switch-rm" onclick="toggleSwitch('rm')"></div></div>
+<div style="margin-top:8px;font-size:10px;color:#6b7280">Voice commands: "Mic on/off", "Enable voice changing", "Voice response on/off"</div>
+</div>
+</div>
+
+<!-- Center: Chat Core - The AI Agent -->
+<div class="chat-core">
+<div class="chat-header">
+<div style="display:flex;align-items:center;gap:12px">
+<div class="waveform" id="waveform"><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div></div>
+<div><b style="font-size:13px;letter-spacing:1px">JARVIS AI • NEURAL LINK ACTIVE</b><div style="font-size:10px;color:#9ca3af" id="listeningHeader">Say "Jarvis briefing" or "Friday todo list" • Mic ready</div></div>
+</div>
+<div style="display:flex;gap:6px">
+<button style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:#fca5a5;padding:4px 8px;border-radius:12px;font-size:9px;cursor:pointer" id="listeningBadge" onclick="toggleMic()">🎤 Click to Speak</button>
+<button style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);color:#6ee7b7;padding:4px 8px;border-radius:12px;font-size:9px">● GPT-4o</button>
+</div>
+</div>
+<div class="messages" id="chatMessages">
+<div class="msg jarvis">
+<div style="font-size:11px;color:#a78bfa;margin-bottom:4px;letter-spacing:1px">JARVIS • PRIMARY • Mentor American Senior Dev (Default)</div>
+Welcome Boss. I am JARVIS — your primary AI agent, not a habit tracker.
+
+I am a multi-agent system:
+• <b>CodeBuddy</b> — Senior dev who debugs, explains, builds projects
+• <b>LifeOS</b> — Manages todos, habits, expenses, briefings
+• <b>StudyGuru</b> — Creates roadmaps, quizzes, flashcards
+
+My sister <b>FRIDAY</b> (Ava Friendly) handles life admin when you say "Friday".
+
+🎤 <b>Microphone fixed for Brave:</b> This preview is HTTPS ({{ request.host }}), but Brave blocks mic in iframes. Click "Open in New Tab" below if mic blocked. On your laptop, use http://localhost:5000 — localhost is allowed for mic even on HTTP.
+
+Try:
+• <b>"Jarvis briefing"</b> → I (Mentor American) give morning plan with voice
+• <b>"Friday todo add finish report"</b> → FRIDAY (Ava) does it
+• <b>"Jarvis code: explain binary search for interview"</b> → Senior dev mode
+
+Voice Control: Say "Microphone on", "Disable voice changing", "Voice response off"
+
+<div class="meta"><span class="voice-tag jarvis">JARVIS • primary</span><span>GPT-4o • OpenRouter</span></div>
+</div>
+</div>
+<div style="padding:0 14px"><div class="quick">
+<button onclick="sendQuick('jarvis briefing')">🌅 JARVIS Briefing</button>
+<button onclick="sendQuick('friday todo list')">📋 FRIDAY Tasks</button>
+<button onclick="sendQuick('jarvis code: build todo app in python')">💻 Build App</button>
+<button onclick="sendQuick('turn on microphone')">🎤 Mic On</button>
+<button onclick="sendQuick('open voices')">🔊 Voice Lab</button>
+</div></div>
+<div class="input-area">
+<button class="btn-mic enabled" id="micBtn" onclick="toggleMic()">🎤</button>
+<input id="chatInput" placeholder="Command JARVIS or FRIDAY... e.g. 'Jarvis briefing' or 'Friday what are my tasks?' (🎤 for voice)" onkeypress="if(event.key==='Enter')sendMessage()">
+<button class="btn btn-primary" onclick="sendMessage()">SEND</button>
+<button class="btn" style="background:rgba(31,41,55,0.8);border:1px solid rgba(42,42,58,0.8)" onclick="replayLast()" title="Replay voice">🔊</button>
+</div>
+</div>
+
+<!-- Right Panel: Systems -->
+<div style="display:flex;flex-direction:column;gap:16px">
+<div class="panel">
+<h3>⚙️ Neural Routing • LLM</h3>
+<div style="font-size:10px;background:rgba(26,26,37,0.8);padding:8px;border-radius:8px;word-break:break-all;margin-bottom:8px">{{ config.provider }}<br><b style="color:#a78bfa">{{ config.model }}</b></div>
+<div style="display:flex;gap:6px">
+<button class="btn" style="flex:1;font-size:9px;padding:6px;background:rgba(139,92,246,0.15);border:1px solid rgba(139,92,246,0.3);color:#a78bfa" onclick="fetch('/api/config/model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'meta-llama/llama-3.3-70b-instruct:free'})}).then(()=>location.reload())">Free Llama</button>
+<button class="btn" style="flex:1;font-size:9px;padding:6px;background:rgba(6,182,214,0.1);border:1px solid rgba(6,182,214,0.2);color:#22d3ee" onclick="window.open('/voices','_blank')">Voice Lab</button>
+</div>
+<div style="margin-top:10px;font-size:10px;color:#6b7280">
+<b>JARVIS:</b> mentor_american (Primary - you set)<br>
+<b>FRIDAY:</b> friendly_assistant (Secondary - Ava)<br>
+Only 2 voices now, others deleted as requested.
+</div>
+</div>
+
+<div class="panel">
+<h3>🔊 Voice Identities</h3>
+<div style="padding:8px;background:linear-gradient(135deg,rgba(139,92,246,0.1),rgba(6,182,214,0.1));border-radius:10px;border:1px solid rgba(139,92,246,0.2);margin-bottom:8px">
+<div style="font-size:11px;font-weight:700;color:#a78bfa">JARVIS • Mentor American</div>
+<div style="font-size:10px;color:#9ca3af">Primary + Default • Friendly senior dev • Clear explanations</div>
+<div style="font-size:9px;color:#6b7280;margin-top:4px">Trigger: "jarvis ..." or no prefix</div>
+</div>
+<div style="padding:8px;background:rgba(6,182,214,0.08);border-radius:10px;border:1px solid rgba(6,182,214,0.2)">
+<div style="font-size:11px;font-weight:700;color:#22d3ee">FRIDAY • Ava Friendly</div>
+<div style="font-size:10px;color:#9ca3af">Secondary • Warm, friendly assistant</div>
+<div style="font-size:9px;color:#6b7280;margin-top:4px">Trigger: "friday ..."</div>
+</div>
+<button class="btn" style="width:100%;margin-top:10px;font-size:10px;background:rgba(31,41,55,0.6);border:1px solid rgba(42,42,58,0.6)" onclick="window.open('/voices','_blank')">🎧 Listen & Change in Voice Lab</button>
+</div>
+
+<div class="panel">
+<h3>🔒 HTTPS & Brave Fix</h3>
+<div style="font-size:11px;color:#9ca3af;line-height:1.4">
+<b>Why mic blocked on Brave?</b> Brave blocks mic in HTTP + iframes.<br><br>
+<b>Fix:</b><br>
+1. <button onclick="window.open(window.location.href, '_blank')" style="background:#8b5cf6;color:white;border:none;padding:4px 8px;border-radius:6px;font-size:10px;cursor:pointer">Open in New Tab (HTTPS)</button> ← Click, mic will work<br>
+2. Allow mic: Click 🔒 in address bar → Site settings → Microphone → Allow<br>
+3. On laptop: Use <code>http://localhost:5000</code> — localhost is allowed for mic even on HTTP (Chrome/Brave treat localhost as secure)<br><br>
+<b>Current:</b> <span id="isSecure"></span> | Host: {{ request.host }}
+</div>
+</div>
+
+<div class="panel">
+<h3>🚀 This is NOT Habit Tracker</h3>
+<div style="font-size:11px;color:#9ca3af;line-height:1.5">
+This is <b style="color:#a78bfa">JARVIS OS - Multi-Agent AI</b> like Iron Man:<br><br>
+• <b>3 AIs auto-routed</b> by orchestrator — you just talk naturally<br>
+• <b>Tools:</b> Code runner, file system, web search, todo/habit/expense DB, TTS, STT<br>
+• <b>Memory:</b> Remembers todos, habits, study progress across sessions<br>
+• <b>Voice:</b> 2 interchangeable voices with alias detection<br>
+• <b>LLM:</b> GPT-4o via OpenRouter, switchable to free models<br>
+• <b>Extensible:</b> Add Gmail, Telegram, Notion, trading bot<br><br>
+Habit tracker is just <b>ONE tool</b> of LifeOS agent. The brain is CodeBuddy + StudyGuru + LifeOS working together.
+</div>
+</div>
+</div>
+
+</div>
+
+<!-- Hidden original grid for compat -->
+<div style="display:none" id="todoList"></div>
+
+</div>
+
+<script>
+const chatMessages = document.getElementById('chatMessages');
+const chatInput = document.getElementById('chatInput');
+const micBtn = document.getElementById('micBtn');
+let lastTtsUrl = null; let lastText = "";
+let isListening = false; let recognition = null;
+let micOn = localStorage.getItem('micToggle') !== 'false'; // FIXED: was '? true : true' which ignored saved OFF state
+let voiceChangingOn = localStorage.getItem('voiceChangeToggle') !== 'false';
+let voiceResponseOn = localStorage.getItem('responseModeToggle') !== 'false';
+
+// HTTPS detection for Brave fix
+function checkHTTPS(){
+  const isSecure = window.isSecureContext;
+  const isHttps = location.protocol === 'https:';
+  const inIframe = window.self !== window.top;
+  document.getElementById('isSecure').textContent = isSecure ? '✅ Secure Context (HTTPS)' : '❌ Not Secure (HTTP)';
+  document.getElementById('secureStatus').textContent = isHttps ? 'HTTPS ✅ Mic should work' : 'HTTP ⚠️ Mic may be blocked';
+  if(!isSecure || inIframe){
+    document.getElementById('httpsWarn').style.display = 'block';
+  } else {
+    document.getElementById('httpsOk').style.display = 'block';
+  }
+  if(inIframe){
+    // Show extra button to open in new tab
+    const btn = document.createElement('button');
+    btn.textContent = '↗️ Open Outside Iframe for Mic (Brave Fix)';
+    btn.style.cssText = 'background:#8b5cf6;color:white;border:none;padding:6px 12px;border-radius:8px;font-size:11px;cursor:pointer;margin-top:8px';
+    btn.onclick = ()=>window.open(window.location.href, '_blank');
+    document.getElementById('httpsWarn').appendChild(btn);
+  }
+}
+checkHTTPS();
+
+function updateSwitch(id, state){
+  const el = document.getElementById('switch-'+id);
+  if(el){ el.className = 'switch ' + (state?'on':''); }
+  localStorage.setItem(id+'Toggle', state);
+  if(id==='mic') micOn = state;
+  if(id==='vc') voiceChangingOn = state;
+  if(id==='rm') voiceResponseOn = state;
+}
+function toggleSwitch(id){
+  if(id==='mic') { micOn = !micOn; updateSwitch('mic', micOn); addMsg(`System: Microphone ${micOn?'ON':'OFF'}`, 'jarvis'); if(micOn) speakQuick('Microphone on'); }
+  if(id==='vc') { voiceChangingOn = !voiceChangingOn; updateSwitch('vc', voiceChangingOn); addMsg(`System: Voice Changing ${voiceChangingOn?'ON - Jarvis/Friday interchangeable':'OFF - Always default JARVIS'}`, 'jarvis'); }
+  if(id==='rm') { voiceResponseOn = !voiceResponseOn; updateSwitch('rm', voiceResponseOn); addMsg(`System: Response ${voiceResponseOn?'Voice+Text':'Text Only'}`, 'jarvis'); }
+}
+window.toggleSwitch = toggleSwitch;
+
+// Init toggles UI
+updateSwitch('mic', localStorage.getItem('micToggle') !== 'false'); // FIXED: no-op ternary removed
+updateSwitch('vc', localStorage.getItem('voiceChangeToggle')!== 'false');
+updateSwitch('rm', localStorage.getItem('responseModeToggle')!== 'false');
+
+function initRec(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){ document.getElementById('listeningHeader').textContent = 'Mic not supported - Use Chrome/Edge'; return; }
+  recognition = new SR(); recognition.lang='en-US'; recognition.interimResults=false; recognition.continuous=false;
+  recognition.onstart=()=>{ isListening=true; micBtn.classList.add('listening'); document.getElementById('waveform').querySelectorAll('.bar').forEach(b=>b.style.animationPlayState='running'); document.getElementById('listeningHeader').textContent='🎤 Listening... Say "Jarvis briefing"'; }
+  recognition.onend=()=>{ isListening=false; micBtn.classList.remove('listening'); document.getElementById('waveform').querySelectorAll('.bar').forEach(b=>b.classList.add('idle')); document.getElementById('listeningHeader').textContent='Say "Jarvis briefing" or "Friday todo list" • Mic ready'; if(micOn){ setTimeout(()=>{ try{ if(micOn) recognition.start(); }catch(e){} }, 900); } };
+  recognition.onerror=(e)=>{ isListening=false; micBtn.classList.remove('listening'); if(e.error==='not-allowed'){ addMsg('System: Mic permission denied. Click 🔒 lock → Allow Microphone. Or open in new tab.', 'jarvis'); updateSwitch('mic', false); } };
+  recognition.onresult=(ev)=>{
+    const txt = ev.results[0][0].transcript.trim();
+    // Handle toggle voice commands
+    const low = txt.toLowerCase();
+    if(low.includes('microphone on')||low.includes('mic on')){ updateSwitch('mic', true); addMsg('System: Mic ON via voice', 'jarvis'); return; }
+    if(low.includes('microphone off')||low.includes('mic off')){ updateSwitch('mic', false); addMsg('System: Mic OFF via voice', 'jarvis'); return; }
+    if(low.includes('enable voice changing')){ updateSwitch('vc', true); addMsg('System: Voice changing ON', 'jarvis'); return; }
+    if(low.includes('disable voice changing')){ updateSwitch('vc', false); addMsg('System: Voice changing OFF', 'jarvis'); return; }
+    if(low.includes('voice response on')||low.includes('enable voice')){ updateSwitch('rm', true); addMsg('System: Voice Response ON', 'jarvis'); return; }
+    if(low.includes('text only')||low.includes('voice response off')){ updateSwitch('rm', false); addMsg('System: Text Only', 'jarvis'); return; }
+    // Normal command
+    addMsg(txt, 'user'); chatInput.value = txt; sendMessage();
+  };
+}
+initRec();
+function toggleMic(){
+  if(!recognition) initRec();
+  if(!recognition) return;
+  if(isListening){ recognition.stop(); } else {
+    if(!micOn){ updateSwitch('mic', true); }
+    try{ recognition.start(); }catch(e){}
+  }
+}
+window.toggleMic = toggleMic;
+
+function addMsg(text, who){
+  const div = document.createElement('div');
+  const isUser = who==='user';
+  div.className = 'msg ' + (isUser ? 'user' : (text.toLowerCase().includes('[friday') ? 'friday' : 'jarvis'));
+  let display = text; let voiceTag = '';
+  if(text.startsWith('🎙️ [')){ const idx=text.indexOf('\n'); if(idx>0){ voiceTag=text.substring(0,idx); display=text.substring(idx).trim(); } }
+  div.textContent = display;
+  if(voiceTag){ const meta=document.createElement('div'); meta.className='meta'; const vt=document.createElement('span'); vt.className='voice-tag '+(voiceTag.toLowerCase().includes('friday')?'friday':'jarvis'); vt.textContent=voiceTag.replace('🎙️','').trim(); meta.appendChild(vt); div.appendChild(meta); }
+  chatMessages.appendChild(div); chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+async function sendMessage(){
+  let msg = chatInput.value.trim(); if(!msg) return;
+  // Voice changing off = strip alias
+  let forceVoice = null;
+  if(!voiceChangingOn){
+    const low = msg.toLowerCase();
+    if(low.startsWith('jarvis ')||low.startsWith('friday ')){ msg = msg.split(' ').slice(1).join(' '); forceVoice='mentor_american'; }
+  }
+  addMsg(msg, 'user'); chatInput.value='';
+  const typing=document.createElement('div'); typing.className='msg jarvis'; typing.textContent='JARVIS analyzing... • Neural routing...'; typing.id='typing'; chatMessages.appendChild(typing); chatMessages.scrollTop=chatMessages.scrollHeight;
+  try{
+    const res=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg, voice_id:forceVoice, speak:voiceResponseOn})});
+    const data=await res.json();
+    document.getElementById('typing')?.remove();
+    addMsg(data.response, 'jarvis');
+    lastText=data.response; lastTtsUrl=data.tts_url;
+    if(voiceResponseOn && data.tts_url){ const a=new Audio(data.tts_url); a.play().catch(()=>{}); }
+    else if(voiceResponseOn){ const u=new SpeechSynthesisUtterance(data.response.replace(/🎙️.*\n/,'').substring(0,400)); speechSynthesis.speak(u); }
+  }catch(e){ document.getElementById('typing')?.remove(); addMsg('Error: '+e.message, 'jarvis'); }
+}
+
+function sendQuick(t){ 
+  const low=t.toLowerCase();
+  if(low.includes('microphone on')||low.includes('mic on')){ updateSwitch('mic', true); addMsg('System: Mic ON', 'jarvis'); return; }
+  if(low.includes('microphone off')||low.includes('mic off')){ updateSwitch('mic', false); addMsg('System: Mic OFF', 'jarvis'); return; }
+  chatInput.value=t; sendMessage(); 
+}
+window.sendQuick = sendQuick;
+function replayLast(){ if(lastTtsUrl){ new Audio(lastTtsUrl).play(); } else if(lastText){ const u=new SpeechSynthesisUtterance(lastText.substring(0,300)); speechSynthesis.speak(u); } }
+window.replayLast = replayLast;
+</script>
+</body>
+</html>
