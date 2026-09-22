@@ -15,8 +15,8 @@ Usage:
   python main.py saved [kind]         list personal memory (website|idea|note|…)
   python main.py voice                PRIMARY interface: one speak→hear cycle
   python main.py voice --loop         keep listening until Ctrl+C
-  python main.py                      DEV: bootstrap (venv/deps/playwright/workspace/db)
-                                      then start the dev console at http://localhost:8000
+  python main.py                      PRIMARY: bootstrap + voice interface
+                                      (dashboard secondary via `serve` / `--dev`)
   python main.py --launcher           PROD (simulate): desktop launcher — runtime + browser + tray
   python main.py --dev / --no-reload  toggle hot reload for the dev console
   python main.py chat                 interactive REPL
@@ -28,6 +28,15 @@ from __future__ import annotations
 
 import asyncio
 import sys
+
+
+def _configure_console_output() -> None:
+    """Keep legacy Windows code pages from aborting startup/reporting."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, OSError):
+            pass
 
 
 def _app():
@@ -195,13 +204,14 @@ def _cmd_dev(port: int | None = None, reload: bool = True) -> None:
     run_dashboard(None, port=port, reload=reload)
 
 
-def _cmd_launcher(port: int = 8000) -> None:
+def _cmd_launcher(app, port: int = 8000) -> None:
     """Desktop launcher (AgentCore.exe production mode / --launcher simulation)."""
     from launcher import run_launcher
-    sys.exit(run_launcher(port=port))
+    sys.exit(run_launcher(app=app, port=port))
 
 
 def main() -> None:
+    _configure_console_output()
     raw_args = sys.argv[1:]
     # strip the fast-dev flag BEFORE dispatch so `--skip-boot <cmd>` still works
     args = [a for a in raw_args if a != "--skip-boot"]
@@ -221,24 +231,41 @@ def main() -> None:
     app = _app()
 
     if args and args[0] == "--launcher":
-        _cmd_launcher(port=int(args[1]) if len(args) > 1 and args[1].isdigit() else 8000)
-        return
+        # Phase 4: When voice.enable_on_launch = true (default),
+        # the packaged AgentCore.exe will start persistent voice automatically.
+        from core.runtime_start import start_runtime_and_voice
+        return start_runtime_and_voice(
+            app,
+            port=int(args[1]) if len(args) > 1 and args[1].isdigit() else 8000,
+            enable_voice=None,   # Let config decide
+        )
     if args and args[0] in ("--dev", "--no-reload"):
         _cmd_dev(port=8000, reload="--no-reload" not in args)
         return
     if not args:
         if FROZEN:
-            # packaged AgentCore.exe → desktop launcher (starts runtime + browser + tray)
-            _cmd_launcher()
+            # packaged AgentCore.exe → desktop launcher
+            # Voice is enabled by default (voice.enable_on_launch = true)
+            # If voice fails, dashboard/runtime must stay alive and report clearly.
+            _cmd_launcher(app, port=8000)  # _cmd_launcher(app, port); voice config decides
             return
-        # startup briefing: concise personal memory surface (recent ideas,
-        # saved websites, items related to active work) — never a dump
+        # === PHASE 1 — Persistent Voice Runtime (default launch) ===
+        # Normal launch (`python main.py`) starts the persistent voice loop.
+        # `python main.py voice` remains the explicit one-shot/debug mode.
+        print("AgentCore — starting persistent voice runtime")
         try:
-            cmd_briefing(app)
-        except Exception:  # noqa: BLE001 — briefing must never block startup
-            pass
-        # PRIMARY DEV ENTRY: `python main.py` → dev console at localhost:8000 (hot reload)
-        _cmd_dev(port=8000, reload=True)
+            # Keep the dashboard alive on the same AgentApp even when the
+            # persistent voice thread cannot start (for example, no mic).
+            from core.runtime_start import start_runtime_and_voice
+            start_runtime_and_voice(app, port=8000, enable_voice=None)
+        except Exception as e:  # noqa: BLE001
+            print(f"Voice runtime failed: {e}")
+            print("→ Falling back to dashboard at http://localhost:8000")
+            try:
+                cmd_briefing(app)
+            except Exception:
+                pass
+            _cmd_dev(port=8000, reload=True)
         return
     if args[0] == "chat":
         repl(app, session_id)

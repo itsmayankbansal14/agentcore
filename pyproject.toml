@@ -2,7 +2,7 @@
 name = "agentcore"
 version = "0.1.0"
 description = "Desktop-first AI agent platform: Windows controller + Android remote companion"
-requires-python = ">=3.11"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "pydantic>=2.5",
     "pydantic-settings>=2.1",

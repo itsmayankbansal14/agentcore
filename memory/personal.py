@@ -56,7 +56,7 @@ class PersonalMemory:
     def save(self, kind: str, title: str, *, url: str = "",
              description: str = "", purpose: str = "", usage: str = "",
              tags: str | list[str] | None = None, notes: str = "",
-             status: str = "new") -> int:
+             status: str = "new", related_project: str = "") -> int:
         kind = kind.lower()
         if kind not in KINDS:
             raise ValueError(f"unknown kind {kind!r}; use one of {KINDS}")
@@ -66,7 +66,7 @@ class PersonalMemory:
                              description=description.strip(),
                              purpose=purpose.strip(), usage=usage.strip(),
                              tags=parse_tags(tags), notes=notes.strip(),
-                             status=status)
+                             status=status, related_project=related_project or "")
             s.add(item)
             s.commit()
             log.info("personal item saved", kind=kind, title=title[:60],
@@ -130,10 +130,11 @@ class PersonalMemory:
             return dict(rows or [])
 
     # -- briefing ----------------------------------------------------------
-    def briefing(self, active_project_tags: list[str] | None = None) -> str:
+    def briefing(self, active_project: str | None = None,
+                 active_project_tags: list[str] | None = None) -> str:
         """Concise personal briefing — recent ideas, recent websites/discoveries,
-        items related to active projects, items needing review. NEVER a dump."""
-        active_tags = [t.lower() for t in (active_project_tags or [])]
+        items explicitly related via related_project, items needing review.
+        NEVER a dump. Uses explicit related_project first, then optional tags."""
         recent = self.recent(days=7, limit=30)
         lines: list[str] = []
         ideas = [r for r in recent if r["kind"] == "idea"]
@@ -147,12 +148,25 @@ class PersonalMemory:
             lines.append(f"{len(web)} website/discovery item{'s' if len(web)>1 else ''} saved recently"
                          f" — “{web[0]['title']}”"
                          + (f" ({web[0]['url']})" if web[0].get("url") else "") + ".")
-        # items tagged with an active project's tag
-        related = [r for r in recent if any(
-            t in active_tags for t in split_tags(r.get("tags", "")))]
-        if related:
-            lines.append(f"{len(related)} saved item{'s' if len(related)>1 else ''} relate to your"
-                         f" active work — “{related[0]['title']}”.")
+
+        # 1) Explicit related_project match (preferred)
+        if active_project:
+            related_explicit = [r for r in recent
+                                if r.get("related_project", "").lower() == active_project.lower()]
+            if related_explicit:
+                lines.append(f"{len(related_explicit)} saved item{'s' if len(related_explicit)>1 else ''} "
+                             f"related to your active project “{active_project}” — "
+                             f"“{related_explicit[0]['title']}”.")
+
+        # 2) Fallback: items tagged with active project tags (optional)
+        if active_project_tags:
+            active_tags = [t.lower() for t in active_project_tags]
+            related_tags = [r for r in recent if any(
+                t in active_tags for t in split_tags(r.get("tags", "")))]
+            if related_tags and not any("related to your active project" in line for line in lines):
+                lines.append(f"{len(related_tags)} saved item{'s' if len(related_tags)>1 else ''} relate to your"
+                             f" active work — “{related_tags[0]['title']}”.")
+
         # explicitly flagged for review (any age)
         review = self.needs_review(limit=5)
         flagged = [r for r in review if r["status"] == "review"]

@@ -174,7 +174,7 @@ def test_doctor_no_required_failures(monkeypatch):
     if not b.check_python()["ok"]:
         # host is 3.13+ → rejection is the expected behavior; the FULL chain
         # is verified under Python 3.12 in the clean-machine run
-        pytest.skip("host python unsupported (need 3.11/3.12) — verified on 3.12")
+        pytest.skip("host python unsupported (need 3.12) — verified on 3.12")
     # never let the test process re-exec into .venv; venv rules are covered
     # separately in tests/test_bootstrap_rules.py
     monkeypatch.setattr(b, "ensure_venv",
@@ -231,7 +231,7 @@ def test_release_zip_is_clean_and_complete():
 def test_full_chain_bootstraps_and_launches(monkeypatch):
     import bootstrap as b
     if not b.check_python()["ok"]:
-        pytest.skip("host python unsupported (need 3.11/3.12) — verified on 3.12")
+        pytest.skip("host python unsupported (need 3.12) — verified on 3.12")
     monkeypatch.setattr(b, "ensure_venv",
                         lambda: {"name": "venv", "ok": True,
                                  "detail": "stub (rules tested separately)"})

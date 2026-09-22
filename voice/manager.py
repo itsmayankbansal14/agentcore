@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading
 
 import structlog
 
@@ -41,6 +42,14 @@ class VoiceManager:
         self.sample_rate = self.cfg.get_int("voice.sample_rate", 16000)
         self.silence_after_s = self.cfg.get_float("voice.silence_after_s", 1.2)
         self.max_record_s = self.cfg.get_float("voice.max_record_s", 15.0)
+        self._stop_event = threading.Event()
+
+        # Initialize STT model once at VoiceManager construction (Priority 2)
+        try:
+            if hasattr(self.stt, "initialize"):
+                self.stt.initialize()
+        except Exception:  # noqa: BLE001 — non-fatal; transcribe will retry
+            pass
 
     # ------------------------------------------------------------------ health
     def health(self) -> dict:
@@ -56,50 +65,73 @@ class VoiceManager:
                             "detail": "playback device" if spk_ok
                             else "no output device — audio saved instead"}}
 
-    # ------------------------------------------------------------------ pipeline
-    def run_once(self, session_id: str | None = None) -> dict:
-        """One full cycle: record → STT → agent → TTS → speak.
-        Returns the transcript, response, and playback result."""
+    def stop(self) -> None:
+        """Signal the persistent voice loop to stop."""
+        self._stop_event.set()
+
+    # ------------------------------------------------------------------ pipeline (async core)
+    async def run_once_async(self, session_id: str | None = None) -> dict:
+        """One full cycle (async): record → STT → agent → TTS → speak.
+        Returns the transcript, response, and playback result.
+        Core implementation — no asyncio.run() inside this class.
+
+        Phase 2: Recoverable failures are caught, reported, and the loop continues.
+        Only unrecoverable errors propagate out of the persistent runtime.
+        """
         sid = session_id or self.session_id
-        # 1) record
-        print("🎤 listening…  (speak now)", flush=True)
-        audio_path = self.source.record(
-            sample_rate=self.sample_rate,
-            silence_after_s=self.silence_after_s,
-            max_duration_s=self.max_record_s)
-        # 2) STT
-        text = self.stt.transcribe(audio_path)
-        if not text:
-            print("  (no speech detected — try again)", flush=True)
-            return {"transcript": "", "response": "", "played": False}
-        print(f"🎤 You: {text}", flush=True)
-        # 3) agent (same input path as chat)
-        response = asyncio.run(self.app.orchestrator.handle_user_message(sid, text))
-        print(f"🤖 {response}", flush=True)
-        # 4) TTS → speak
         try:
-            fmt, data = self.tts.synthesize(response)
-            played = self.speaker.play(data, fmt)
+            # 1) record
+            print("🎤 listening…  (speak now)", flush=True)
+            audio_path = self.source.record(
+                sample_rate=self.sample_rate,
+                silence_after_s=self.silence_after_s,
+                max_duration_s=self.max_record_s)
+            # 2) STT
+            text = self.stt.transcribe(audio_path)
+            if not text:
+                print("  (no speech detected — try again)", flush=True)
+                return {"transcript": "", "response": "", "played": False, "status": "no_speech"}
+            print(f"🎤 You: {text}", flush=True)
+            # 3) agent (same input path as chat)
+            response = await self.app.orchestrator.handle_user_message(sid, text)
+            print(f"🤖 {response}", flush=True)
+
+            # 4) TTS → speak (use async path)
+            fmt, data = await self.tts.synthesize_async(response)
+            played = await asyncio.to_thread(self.speaker.play, data, fmt)
             if not played.get("played") and played.get("saved_to"):
                 print(f"  🔊 (no audio device — saved to {played['saved_to']})",
                       flush=True)
-        except Exception as e:  # noqa: BLE001
-            played = {"played": False, "error": str(e)[:120]}
-            print(f"  🔊 TTS failed: {e}", flush=True)
-        return {"transcript": text, "response": response, "played": played}
+            return {"transcript": text, "response": response, "played": played, "status": "ok"}
 
-    def run_loop(self, session_id: str | None = None, wake: bool = False,
-                 max_rounds: int | None = None) -> int:
-        """Repeat cycles until Ctrl+C (or max_rounds for tests)."""
+        except Exception as e:  # noqa: BLE001 — Phase 2: isolate recoverable failures
+            print(f"  ⚠ Voice interaction failed: {e}", flush=True)
+            return {"transcript": "", "response": "", "played": False, "status": "error", "error": str(e)[:200]}
+
+    def run_once(self, session_id: str | None = None) -> dict:
+        """Synchronous wrapper for backward compatibility (CLI / tests)."""
+        return asyncio.run(self.run_once_async(session_id))
+
+    async def run_loop_async(self, session_id: str | None = None, wake: bool = False,
+                             max_rounds: int | None = None) -> int:
+        """Async repeat cycles until Ctrl+C (or max_rounds for tests)."""
         sid = session_id or self.session_id
         n = 0
         try:
-            while max_rounds is None or n < max_rounds:
-                self.run_once(sid)
+            while (
+                not self._stop_event.is_set()
+                and (max_rounds is None or n < max_rounds)
+            ):
+                await self.run_once_async(sid)
                 n += 1
         except KeyboardInterrupt:
             print("\n👋 voice session ended", flush=True)
         return n
+
+    def run_loop(self, session_id: str | None = None, wake: bool = False,
+                 max_rounds: int | None = None) -> int:
+        """Synchronous wrapper for backward compatibility (CLI/debug only)."""
+        return asyncio.run(self.run_loop_async(session_id, wake, max_rounds))
 
 
 def build_voice(app) -> VoiceManager:

@@ -11,6 +11,7 @@ REM ============================================================
 setlocal enabledelayedexpansion
 title AgentCore Build
 cd /d "%~dp0"
+if not defined PYTHON set "PYTHON=python"
 
 echo.
 echo  ============================================
@@ -19,7 +20,7 @@ echo  ============================================
 echo.
 
 REM ---------- Python present? ----------
-python --version >nul 2>nul
+"%PYTHON%" --version >nul 2>nul
 if errorlevel 1 (
     echo [ABORT] Python not found. Install from https://www.python.org/downloads/
     echo         IMPORTANT: tick "Add Python to PATH".
@@ -30,7 +31,7 @@ if errorlevel 1 (
 REM ============ STEP 1/7: VERIFY (mandatory) ============
 echo.
 echo === [1/7] VERIFY build prerequisites ===
-python scripts\verify_build.py
+"%PYTHON%" scripts\verify_build.py
 if errorlevel 1 (
     echo.
     echo [ABORT] Verification FAILED. Fix the issues above, then re-run.
@@ -40,7 +41,7 @@ if errorlevel 1 (
 REM ============ STEP 2/7: INSTALL DEPENDENCIES ============
 echo.
 echo === [2/7] Install dependencies (pip install -r requirements.txt) ===
-python -m pip install -r requirements.txt
+"%PYTHON%" -m pip install -r requirements.txt
 if errorlevel 1 (
     echo.
     echo [ABORT] Dependency installation FAILED. See pip error above.
@@ -50,7 +51,7 @@ if errorlevel 1 (
 REM ============ STEP 3/7: RE-VERIFY ============
 echo.
 echo === [3/7] Re-verify after install ===
-python scripts\verify_build.py
+"%PYTHON%" scripts\verify_build.py
 if errorlevel 1 (
     echo.
     echo [ABORT] Packages still missing after install. See above. Build will NOT continue.
@@ -60,19 +61,19 @@ if errorlevel 1 (
 REM ============ STEP 4/7: TESTS ============
 echo.
 echo === [4/7] Run test suites ===
-python tests\test_architecture.py || ( echo [ABORT] Architecture tests failed & exit /b 1 )
-python tests\smoke.py || ( echo [ABORT] Core tests failed & exit /b 1 )
-python tests\test_api.py || ( echo [ABORT] API tests failed & exit /b 1 )
+"%PYTHON%" tests\test_architecture.py || ( echo [ABORT] Architecture tests failed & exit /b 1 )
+"%PYTHON%" tests\smoke.py || ( echo [ABORT] Core tests failed & exit /b 1 )
+"%PYTHON%" tests\test_api.py || ( echo [ABORT] API tests failed & exit /b 1 )
 
 REM ============ STEP 5/7: PYINSTALLER --clean ============
 echo.
 echo === [5/7] PyInstaller --clean (all verification passed) ===
-python -m PyInstaller --version >nul 2>nul
+"%PYTHON%" -m PyInstaller --version >nul 2>nul
 if errorlevel 1 (
     echo [setup] Installing PyInstaller...
-    python -m pip install pyinstaller || ( echo [ABORT] PyInstaller install failed & exit /b 1 )
+    "%PYTHON%" -m pip install pyinstaller || ( echo [ABORT] PyInstaller install failed & exit /b 1 )
 )
-python -m PyInstaller ^
+"%PYTHON%" -m PyInstaller ^
     --clean --noconfirm --onefile --console ^
     --name AgentCore ^
     --distpath dist ^
@@ -81,6 +82,11 @@ python -m PyInstaller ^
     --add-data "ui;ui" ^
     --add-data "config;config" ^
     --add-data "dashboard;dashboard" ^
+    --hidden-import launcher ^
+    --hidden-import voice.manager ^
+    --hidden-import voice.tts.edge ^
+    --hidden-import bs4 ^
+    --hidden-import requests ^
     --hidden-import sqlalchemy ^
     --hidden-import structlog ^
     --hidden-import pydantic ^
@@ -93,6 +99,8 @@ python -m PyInstaller ^
     --hidden-import pystray ^
     --hidden-import PIL ^
     --hidden-import watchfiles ^
+    --hidden-import edge_tts ^
+    --hidden-import faster_whisper ^
     main.py
 if errorlevel 1 (
     echo [ABORT] PyInstaller failed.
@@ -116,7 +124,7 @@ if errorlevel 1 (
 REM ============ STEP 7/7: PACKAGE ============
 echo.
 echo === [7/7] Package build ===
-python scripts\build.py --only package
+"%PYTHON%" scripts\build.py --only package
 if errorlevel 1 (
     echo [ABORT] Packaging failed.
     exit /b 1

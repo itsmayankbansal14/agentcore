@@ -30,7 +30,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -47,6 +47,7 @@ ROOT = Path(__file__).resolve().parent.parent
 class ChatRequest(BaseModel):
     message: str
     session_id: str = "web"
+    speak: bool = False
 
 
 class PlanRequest(BaseModel):
@@ -56,6 +57,16 @@ class PlanRequest(BaseModel):
 
 class ResumeRequest(BaseModel):
     session_id: str = "web"
+
+
+class SynthesizeRequest(BaseModel):
+    text: str
+    voice: str | None = None
+
+
+class SetPersonaRequest(BaseModel):
+    persona: str
+    voice: str | None = None
 
 
 class IngestRequest(BaseModel):
@@ -104,8 +115,166 @@ def create_app(agent: AgentApp | None = None, template: Path | None = None) -> F
         t0 = time.time()
         response = await agent_app.orchestrator.handle_user_message(
             req.session_id, req.message)
-        return {"response": response, "ms": int((time.time() - t0) * 1000),
-                "session_id": req.session_id}
+        out = {"response": response, "ms": int((time.time() - t0) * 1000),
+               "session_id": req.session_id}
+        if req.speak:
+            out["speak"] = True
+            out["audio_url"] = f"/api/voice/synthesize?text={json.dumps(response)}"
+        return out
+
+    # -------------------------------------------------------------- Voice Control
+    @app.get("/api/voice/health")
+    async def voice_health() -> dict:
+        """Voice subsystem health: STT, TTS, microphone, and speaker state."""
+        from voice.manager import VoiceManager
+        vm = VoiceManager(agent_app)
+        h = vm.health()
+        h["persona"] = agent_app.config.get_str("voice.active_persona", "jarvis")
+        h["tts_voice"] = agent_app.config.get_str("voice.tts_voice", "en-US-ChristopherNeural")
+        h["stt_provider"] = agent_app.config.get_str("voice.stt_provider", "fasterwhisper")
+        h["tts_provider"] = agent_app.config.get_str("voice.tts_provider", "edge")
+        return h
+
+    @app.get("/api/voice/personas")
+    async def voice_personas() -> dict:
+        """List available voice personas and the active configuration."""
+        from voice.tts.edge import EdgeTts
+        active = agent_app.config.get_str("voice.active_persona", "jarvis").lower()
+        current_voice = agent_app.config.get_str("voice.tts_voice", EdgeTts.PERSONA_VOICES.get(active, "en-US-ChristopherNeural"))
+        return {
+            "active_persona": active,
+            "current_voice": current_voice,
+            "personas": [
+                {
+                    "id": "jarvis",
+                    "name": "Jarvis",
+                    "voice": EdgeTts.PERSONA_VOICES.get("jarvis", "en-GB-RyanNeural"),
+                    "gender": "Male",
+                    "accent": "British (UK Neural)",
+                    "description": "Refined British Butler / Assistant"
+                },
+                {
+                    "id": "friday",
+                    "name": "Friday",
+                    "voice": EdgeTts.PERSONA_VOICES.get("friday", "en-GB-SoniaNeural"),
+                    "gender": "Female",
+                    "accent": "British (UK Neural)",
+                    "description": "Crisp Female AI Assistant"
+                },
+                {
+                    "id": "custom",
+                    "name": "Custom",
+                    "voice": current_voice,
+                    "gender": "Custom",
+                    "accent": "Custom",
+                    "description": "Configured custom TTS voice"
+                }
+            ]
+        }
+
+    @app.post("/api/voice/persona")
+    async def voice_set_persona(req: SetPersonaRequest) -> dict:
+        """Switch active voice persona or voice name dynamically."""
+        from voice.tts.edge import EdgeTts
+        persona = req.persona.lower().strip()
+        if persona not in ("jarvis", "friday", "custom"):
+            return JSONResponse({"error": f"Unknown persona '{persona}'. Supported: jarvis, friday, custom"},
+                                status_code=400)
+
+        agent_app.config.set_runtime("voice.active_persona", persona)
+        if req.voice:
+            agent_app.config.set_runtime("voice.tts_voice", req.voice)
+        elif persona in EdgeTts.PERSONA_VOICES:
+            agent_app.config.set_runtime("voice.tts_voice", EdgeTts.PERSONA_VOICES[persona])
+
+        return {
+            "status": "ok",
+            "active_persona": persona,
+            "tts_voice": agent_app.config.get_str("voice.tts_voice", "")
+        }
+
+    @app.api_route("/api/voice/synthesize", methods=["GET", "POST"])
+    async def voice_synthesize(req: SynthesizeRequest | None = None,
+                               text: str | None = None,
+                               voice: str | None = None):
+        """Synthesize text to speech audio using AgentCore's TTS engine."""
+        from voice.tts import build_tts
+        tts_text = (req.text if req else None) or text or ""
+        if not tts_text:
+            return JSONResponse({"error": "text is required"}, status_code=400)
+
+        tts = build_tts(agent_app.config)
+        selected_voice = (req.voice if req else None) or voice
+        try:
+            if selected_voice and hasattr(tts, "voice"):
+                orig_voice = tts.voice
+                tts.voice = selected_voice
+                try:
+                    fmt, data = await tts.synthesize_async(tts_text)
+                finally:
+                    tts.voice = orig_voice
+            else:
+                fmt, data = await tts.synthesize_async(tts_text)
+        except Exception as e:
+            # Fallback to SAPI if primary engine fails (e.g. offline/network)
+            try:
+                from voice.tts.sapi import SapiTts
+                sapi = SapiTts(agent_app.config)
+                fmt, data = await sapi.synthesize_async(tts_text)
+            except Exception as e2:
+                return JSONResponse({"error": f"Synthesis failed: {e}; fallback error: {e2}"},
+                                    status_code=500)
+
+        media_type = "audio/mpeg" if fmt == "mp3" else "audio/wav"
+        return Response(content=data, media_type=media_type,
+                        headers={"Content-Disposition": f'inline; filename="speech.{fmt}"'})
+
+    @app.post("/api/voice/transcribe")
+    async def voice_transcribe(request: Request):
+        """Transcribe speech audio to text using AgentCore's STT engine."""
+        import base64
+        import tempfile
+        from voice.stt import build_stt
+
+        content_type = request.headers.get("content-type", "")
+        audio_bytes = b""
+        fmt = "wav"
+
+        if "application/json" in content_type:
+            body = await request.json()
+            b64 = body.get("audio_base64", "")
+            fmt = body.get("format", "wav")
+            if b64:
+                if "," in b64:
+                    b64 = b64.split(",", 1)[1]
+                audio_bytes = base64.b64decode(b64)
+        else:
+            audio_bytes = await request.body()
+            if "webm" in content_type:
+                fmt = "webm"
+            elif "mp3" in content_type or "mpeg" in content_type:
+                fmt = "mp3"
+            elif "ogg" in content_type:
+                fmt = "ogg"
+
+        if not audio_bytes:
+            return JSONResponse({"error": "No audio payload received"}, status_code=400)
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{fmt}") as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+
+        try:
+            stt = build_stt(agent_app.config)
+            text = stt.transcribe(tmp_path)
+            return {"transcript": text, "status": "ok"}
+        except Exception as e:
+            return JSONResponse({"error": str(e), "status": "error"}, status_code=500)
+        finally:
+            try:
+                Path(tmp_path).unlink(missing_ok=True)
+            except Exception:
+                pass
 
     @app.post("/api/chat/stream")
     async def chat_stream(req: ChatRequest) -> StreamingResponse:
@@ -503,6 +672,12 @@ def create_app(agent: AgentApp | None = None, template: Path | None = None) -> F
             return {"logs": []}
         raw = log_file.read_text(encoding="utf-8", errors="replace").splitlines()
         return {"logs": raw[-min(lines, 200):]}
+
+    # -------------------------------------------------------------- STATIC FILES
+    # Mount static directory for CSS/JS assets
+    static_dir = ROOT / "dashboard" / "static"
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     # -------------------------------------------------------------- UI
     ui_file = template or ROOT / "ui" / "dashboard.html"

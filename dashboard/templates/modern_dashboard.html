@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgentCore — Dashboard</title>
+  <link rel="stylesheet" href="/static/modern.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Background effects -->
+  <div class="bg-gradient"></div>
+  <div class="bg-grid"></div>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-content">
+      <div class="brand">
+        <div class="brand-orb"></div>
+        <div class="brand-text">
+          <h1>AGENTCORE</h1>
+          <p>Real-Time Agent Runtime</p>
+        </div>
+      </div>
+
+      <div class="status-bar">
+        <div class="chip active" id="chip-ws">
+          <span class="chip-dot"></span>
+          <span>Connected</span>
+        </div>
+        <div class="chip" id="chip-voice">
+          <span class="chip-dot"></span>
+          <span id="voice-label">Voice: Ready</span>
+        </div>
+        <div class="chip accent" id="chip-provider">
+          <span>Provider</span>
+        </div>
+        <div class="chip info" id="chip-model">
+          <span>Model</span>
+        </div>
+        <div class="chip" id="chip-tools">
+          <span>0 Tools</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Layout -->
+  <div class="main-container">
+    <!-- Chat Panel -->
+    <div class="panel chat-container">
+      <div class="panel-header">
+        <h2 class="panel-title">Conversation</h2>
+        <div class="panel-actions">
+          <button class="btn btn-icon btn-secondary" onclick="clearChat()" title="Clear chat">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="chat-messages" id="messages">
+        <div class="message message-system">
+          <span>AgentCore initialized. Ready for commands.</span>
+        </div>
+      </div>
+
+      <div class="chat-input-container">
+        <div class="chat-input-wrapper">
+          <textarea
+            class="chat-input"
+            id="userInput"
+            placeholder="Type a message or press 🎤 to speak (Ctrl+M)..."
+            rows="1"
+            onkeydown="handleKeyPress(event)"
+          ></textarea>
+          <button class="btn btn-mic" id="micBtn" onclick="toggleVoiceListening()" title="Speak (Ctrl+M)">
+            <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+            <span id="micText" style="display:none; font-size:12px; margin-left:4px;">Listening…</span>
+          </button>
+          <button class="btn btn-primary" onclick="sendMessage()" id="sendBtn">
+            <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+            </svg>
+            <span>Send</span>
+          </button>
+        </div>
+        <div style="display: flex; gap: var(--space-2); margin-top: var(--space-3); flex-wrap: wrap; align-items: center;">
+          <button class="btn btn-sm btn-secondary voice-toggle-active" id="autoSpeakBtn" onclick="toggleAutoSpeak()" title="Toggle voice response (TTS)">
+            <span id="autoSpeakIcon">🔊</span> Auto-Speak: <span id="autoSpeakStatus">ON</span>
+          </button>
+          <button class="btn btn-sm btn-secondary" id="stopAudioBtn" onclick="stopAudioPlayback()" style="display:none; color:#F87171; border-color:rgba(239,68,68,0.4);" title="Stop speech playback">
+            ⏹ Stop Audio
+          </button>
+          <span style="border-left: 1px solid var(--border); height: 16px; margin: 0 var(--space-1);"></span>
+          <button class="btn btn-sm btn-secondary" onclick="quickCommand('What time is it?')">⏰ Time</button>
+          <button class="btn btn-sm btn-secondary" onclick="quickCommand('Open YouTube')">▶️ YouTube</button>
+          <button class="btn btn-sm btn-secondary" onclick="quickCommand('status')">📊 Status</button>
+          <button class="btn btn-sm btn-secondary" onclick="quickCommand('whoami')">👤 Whoami</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <!-- System Status Panel -->
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">System Status</h2>
+        </div>
+        <div class="panel-body">
+          <div class="stat-grid">
+            <div class="stat-card">
+              <div class="stat-label">Tools</div>
+              <div class="stat-value" id="stat-tools">0</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Devices</div>
+              <div class="stat-value" id="stat-devices">0</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Messages</div>
+              <div class="stat-value" id="stat-messages">0</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Tasks</div>
+              <div class="stat-value" id="stat-tasks">0</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabs Panel -->
+      <div class="panel">
+        <div class="tabs">
+          <button class="tab active" onclick="switchTab('timeline')">Timeline</button>
+          <button class="tab" onclick="switchTab('execution')">Execution</button>
+          <button class="tab" onclick="switchTab('devices')">Devices</button>
+          <button class="tab" onclick="switchTab('voice')">Voice & Audio</button>
+          <button class="tab" onclick="switchTab('memory')">Memory</button>
+        </div>
+
+        <!-- Timeline Tab -->
+        <div class="tab-content active" id="tab-timeline">
+          <div class="timeline" id="timeline">
+            <div class="timeline-item">
+              <div class="timeline-marker"></div>
+              <div class="timeline-content">
+                <div class="timeline-time">09:12:04</div>
+                <div class="timeline-event">System ready</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Execution Tab -->
+        <div class="tab-content" id="tab-execution">
+          <div class="panel-body">
+            <div class="kv-list" id="execution-info">
+              <div class="kv-item">
+                <span class="kv-key">Current Task</span>
+                <span class="kv-value">None</span>
+              </div>
+              <div class="kv-item">
+                <span class="kv-key">Status</span>
+                <span class="kv-value">Idle</span>
+              </div>
+              <div class="kv-item">
+                <span class="kv-key">Target Device</span>
+                <span class="kv-value">—</span>
+              </div>
+              <div class="kv-item">
+                <span class="kv-key">Active Plan</span>
+                <span class="kv-value">None</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Devices Tab -->
+        <div class="tab-content" id="tab-devices">
+          <div class="panel-body">
+            <div class="kv-list" id="devices-list">
+              <div class="kv-item">
+                <span class="kv-key">Windows</span>
+                <span class="badge badge-success">Online</span>
+              </div>
+              <div class="kv-item">
+                <span class="kv-key">Browser</span>
+                <span class="badge">Offline</span>
+              </div>
+              <div class="kv-item">
+                <span class="kv-key">Android</span>
+                <span class="badge">Offline</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Voice & Audio Tab -->
+        <div class="tab-content" id="tab-voice">
+          <div class="panel-body">
+            <div class="kv-list" id="voice-info">
+              <div class="kv-item">
+                <span class="kv-key">Status</span>
+                <span class="badge badge-success" id="voice-tab-status">Ready</span>
+              </div>
+              <div class="kv-item">
+                <span class="kv-key">Active Persona</span>
+                <select id="voice-persona-select" class="form-select" style="background:var(--bg-card); color:var(--text-primary); border:1px solid var(--border-color); border-radius:var(--radius-sm); padding:3px 8px; font-size:var(--text-xs); font-family:inherit; cursor:pointer;" onchange="switchVoicePersona(this.value)">
+                  <option value="jarvis">Jarvis (Male UK)</option>
+                  <option value="friday">Friday (Female UK)</option>
+                </select>
+              </div>
+              <div class="kv-item">
+                <span class="kv-key">TTS Voice</span>
+                <span class="kv-value" id="voice-tab-voice">en-GB-RyanNeural</span>
+              </div>
+              <div class="kv-item">
+                <span class="kv-key">STT Engine</span>
+                <span class="kv-value" id="voice-tab-stt">WebSpeech / FasterWhisper</span>
+              </div>
+              <div class="kv-item">
+                <span class="kv-key">Audio Mode</span>
+                <span class="kv-value" id="voice-tab-mode">Neural Streaming</span>
+              </div>
+            </div>
+            <div style="margin-top: var(--space-4); display:flex; gap:var(--space-2);">
+              <button class="btn btn-sm btn-secondary" style="flex:1;" onclick="testVoiceSynthesis()">🔊 Test Voice</button>
+              <button class="btn btn-sm btn-secondary" style="flex:1;" onclick="refreshVoiceHealth()">🔄 Refresh</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Memory Tab -->
+        <div class="tab-content" id="tab-memory">
+          <div class="panel-body">
+            <div class="kv-list" id="memory-info">
+              <div class="kv-item">
+                <span class="kv-key">STM Window</span>
+                <span class="kv-value">20 msgs</span>
+              </div>
+              <div class="kv-item">
+                <span class="kv-key">LTM Facts</span>
+                <span class="kv-value">0</span>
+              </div>
+              <div class="kv-item">
+                <span class="kv-key">Knowledge</span>
+                <span class="kv-value">0 chunks</span>
+              </div>
+              <div class="kv-item">
+                <span class="kv-key">Personal</span>
+                <span class="kv-value">0 items</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    // ============================================================
+    // STATE MANAGEMENT
+    // ============================================================
+    let ws = null;
+    let messageCount = 0;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 5;
+
+    // ============================================================
+    // WEBSOCKET CONNECTION
+    // ============================================================
+    function connectWebSocket() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        console.log('[WS] Connected');
+        updateConnectionStatus(true);
+        reconnectAttempts = 0;
+        addTimelineEvent('Connected to runtime', 'success');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          handleWebSocketMessage(data);
+        } catch (err) {
+          console.error('[WS] Parse error:', err);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('[WS] Error:', error);
+        addTimelineEvent('Connection error', 'error');
+      };
+
+      ws.onclose = () => {
+        console.log('[WS] Disconnected');
+        updateConnectionStatus(false);
+
+        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+          reconnectAttempts++;
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+          console.log(`[WS] Reconnecting in ${delay}ms (attempt ${reconnectAttempts})`);
+          setTimeout(connectWebSocket, delay);
+        } else {
+          addTimelineEvent('Connection lost. Refresh to reconnect.', 'error');
+        }
+      };
+    }
+
+    function updateConnectionStatus(connected) {
+      const chip = document.getElementById('chip-ws');
+      if (connected) {
+        chip.className = 'chip active';
+        chip.innerHTML = '<span class="chip-dot"></span><span>Connected</span>';
+      } else {
+        chip.className = 'chip error';
+        chip.innerHTML = '<span class="chip-dot"></span><span>Disconnected</span>';
+      }
+    }
+
+    // ============================================================
+    // MESSAGE HANDLERS
+    // ============================================================
+    function handleWebSocketMessage(data) {
+      const { type, payload } = data;
+
+      switch (type) {
+        case 'status':
+          updateStatus(payload);
+          break;
+        case 'message':
+          addMessage(payload.role, payload.content);
+          break;
+        case 'event':
+          addTimelineEvent(payload.event, payload.status);
+          break;
+        case 'execution':
+          updateExecution(payload);
+          break;
+        case 'devices':
+          updateDevices(payload);
+          break;
+        case 'tools':
+          updateTools(payload);
+          break;
+        default:
+          console.log('[WS] Unknown message type:', type);
+      }
+    }
+
+    function updateStatus(payload) {
+      if (payload.provider) {
+        document.getElementById('chip-provider').textContent = payload.provider;
+      }
+      if (payload.model) {
+        document.getElementById('chip-model').textContent = payload.model;
+      }
+      if (payload.tools !== undefined) {
+        document.getElementById('chip-tools').textContent = `${payload.tools} Tools`;
+        document.getElementById('stat-tools').textContent = payload.tools;
+      }
+      if (payload.devices !== undefined) {
+        document.getElementById('stat-devices').textContent = payload.devices;
+      }
+      if (payload.messages !== undefined) {
+        document.getElementById('stat-messages').textContent = payload.messages;
+      }
+    }
+
+    function updateExecution(payload) {
+      const container = document.getElementById('execution-info');
+      container.innerHTML = `
+        <div class="kv-item">
+          <span class="kv-key">Current Task</span>
+          <span class="kv-value">${payload.task || 'None'}</span>
+        </div>
+        <div class="kv-item">
+          <span class="kv-key">Status</span>
+          <span class="kv-value">${payload.status || 'Idle'}</span>
+        </div>
+        <div class="kv-item">
+          <span class="kv-key">Target Device</span>
+          <span class="kv-value">${payload.target || '—'}</span>
+        </div>
+        <div class="kv-item">
+          <span class="kv-key">Active Plan</span>
+          <span class="kv-value">${payload.plan || 'None'}</span>
+        </div>
+      `;
+    }
+
+    function updateDevices(payload) {
+      const container = document.getElementById('devices-list');
+      let html = '';
+
+      for (const [name, status] of Object.entries(payload)) {
+        const badgeClass = status === 'online' ? 'badge-success' : '';
+        html += `
+          <div class="kv-item">
+            <span class="kv-key">${name}</span>
+            <span class="badge ${badgeClass}">${status}</span>
+          </div>
+        `;
+      }
+
+      container.innerHTML = html;
+    }
+
+    function updateTools(payload) {
+      document.getElementById('stat-tools').textContent = payload.count || 0;
+    }
+
+    // ============================================================
+    // VOICE & SPEECH SUBSYSTEM (STT & TTS)
+    // ============================================================
+    let isListening = false;
+    let autoSpeak = true;
+    let speechRecognition = null;
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let activeAudio = null;
+
+    function initSpeechRecognition() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        speechRecognition = new SpeechRecognition();
+        speechRecognition.continuous = false;
+        speechRecognition.interimResults = true;
+        speechRecognition.lang = 'en-US';
+
+        speechRecognition.onstart = () => {
+          isListening = true;
+          updateVoiceUIState('listening');
+          addTimelineEvent('Microphone listening...', 'info');
+        };
+
+        speechRecognition.onresult = (event) => {
+          let interimTranscript = '';
+          let finalTranscript = '';
+
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+              finalTranscript += event.results[i][0].transcript;
+            } else {
+              interimTranscript += event.results[i][0].transcript;
+            }
+          }
+
+          const input = document.getElementById('userInput');
+          if (finalTranscript) {
+            input.value = finalTranscript;
+            stopVoiceListening();
+            sendMessage();
+          } else if (interimTranscript) {
+            input.value = interimTranscript;
+          }
+        };
+
+        speechRecognition.onerror = (event) => {
+          console.warn('[Voice STT] WebSpeech error:', event.error);
+          if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+            addTimelineEvent('Microphone permission denied', 'error');
+            stopVoiceListening();
+          } else if (event.error !== 'no-speech') {
+            fallbackToMediaRecorder();
+          } else {
+            stopVoiceListening();
+          }
+        };
+
+        speechRecognition.onend = () => {
+          if (isListening) {
+            stopVoiceListening();
+          }
+        };
+      }
+    }
+
+    function toggleVoiceListening() {
+      if (isListening) {
+        stopVoiceListening();
+      } else {
+        startVoiceListening();
+      }
+    }
+
+    function startVoiceListening() {
+      if (activeAudio) {
+        stopAudioPlayback();
+      }
+
+      if (speechRecognition) {
+        try {
+          speechRecognition.start();
+          return;
+        } catch (e) {
+          console.warn('[Voice] SpeechRecognition start error, using MediaRecorder:', e);
+        }
+      }
+      fallbackToMediaRecorder();
+    }
+
+    function stopVoiceListening() {
+      isListening = false;
+      if (speechRecognition) {
+        try { speechRecognition.stop(); } catch(e) {}
+      }
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        try { mediaRecorder.stop(); } catch(e) {}
+      }
+      updateVoiceUIState('idle');
+    }
+
+    async function fallbackToMediaRecorder() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        addTimelineEvent('Microphone not supported on this browser', 'error');
+        updateVoiceUIState('idle');
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        isListening = true;
+        updateVoiceUIState('listening');
+        audioChunks = [];
+
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) audioChunks.push(e.data);
+        };
+
+        mediaRecorder.onstop = async () => {
+          stream.getTracks().forEach(track => track.stop());
+          if (audioChunks.length === 0) {
+            updateVoiceUIState('idle');
+            return;
+          }
+          updateVoiceUIState('processing');
+          addTimelineEvent('Transcribing speech...', 'info');
+
+          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+          try {
+            const res = await fetch('/api/voice/transcribe', {
+              method: 'POST',
+              headers: { 'Content-Type': 'audio/webm' },
+              body: audioBlob
+            });
+            const data = await res.json();
+            if (data.transcript && data.transcript.trim()) {
+              document.getElementById('userInput').value = data.transcript;
+              sendMessage();
+            } else {
+              addTimelineEvent('No speech recognized', 'info');
+            }
+          } catch (err) {
+            console.error('[STT] Transcribe error:', err);
+            addTimelineEvent('Voice transcription failed', 'error');
+          } finally {
+            updateVoiceUIState('idle');
+          }
+        };
+
+        mediaRecorder.start();
+        addTimelineEvent('Recording voice query...', 'info');
+      } catch (err) {
+        console.error('[Voice] MediaRecorder error:', err);
+        addTimelineEvent('Microphone access denied', 'error');
+        updateVoiceUIState('idle');
+      }
+    }
+
+    function updateVoiceUIState(state) {
+      const micBtn = document.getElementById('micBtn');
+      const micText = document.getElementById('micText');
+      const voiceLabel = document.getElementById('voice-label');
+      const voiceChip = document.getElementById('chip-voice');
+
+      if (!micBtn) return;
+      micBtn.className = 'btn btn-mic';
+
+      if (state === 'listening') {
+        micBtn.classList.add('listening');
+        if (micText) { micText.style.display = 'inline'; micText.textContent = 'Listening…'; }
+        if (voiceLabel) voiceLabel.textContent = 'Voice: Listening';
+        if (voiceChip) voiceChip.className = 'chip active';
+      } else if (state === 'processing') {
+        micBtn.classList.add('processing');
+        if (micText) { micText.style.display = 'inline'; micText.textContent = 'Thinking…'; }
+        if (voiceLabel) voiceLabel.textContent = 'Voice: Thinking';
+      } else if (state === 'speaking') {
+        micBtn.classList.add('speaking');
+        if (micText) { micText.style.display = 'inline'; micText.textContent = 'Speaking…'; }
+        if (voiceLabel) voiceLabel.textContent = 'Voice: Speaking';
+        if (voiceChip) voiceChip.className = 'chip active';
+        const stopBtn = document.getElementById('stopAudioBtn');
+        if (stopBtn) stopBtn.style.display = 'inline-flex';
+      } else {
+        if (micText) micText.style.display = 'none';
+        if (voiceLabel) voiceLabel.textContent = 'Voice: Ready';
+        if (voiceChip) voiceChip.className = 'chip';
+        const stopBtn = document.getElementById('stopAudioBtn');
+        if (stopBtn) stopBtn.style.display = 'none';
+      }
+    }
+
+    function toggleAutoSpeak() {
+      autoSpeak = !autoSpeak;
+      const btn = document.getElementById('autoSpeakBtn');
+      const status = document.getElementById('autoSpeakStatus');
+      const icon = document.getElementById('autoSpeakIcon');
+
+      if (autoSpeak) {
+        btn.classList.add('voice-toggle-active');
+        status.textContent = 'ON';
+        icon.textContent = '🔊';
+      } else {
+        btn.classList.remove('voice-toggle-active');
+        status.textContent = 'OFF';
+        icon.textContent = '🔇';
+        stopAudioPlayback();
+      }
+    }
+
+    function speakText(text) {
+      if (!text) return;
+      stopAudioPlayback();
+
+      updateVoiceUIState('speaking');
+      const encodedText = encodeURIComponent(text);
+      const audioUrl = `/api/voice/synthesize?text=${encodedText}`;
+
+      activeAudio = new Audio(audioUrl);
+      activeAudio.onended = () => {
+        updateVoiceUIState('idle');
+        activeAudio = null;
+      };
+      activeAudio.onerror = (e) => {
+        console.warn('[TTS] Audio streaming error, fallback to WebSpeechSynthesis:', e);
+        if ('speechSynthesis' in window) {
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.onend = () => updateVoiceUIState('idle');
+          utterance.onerror = () => updateVoiceUIState('idle');
+          window.speechSynthesis.speak(utterance);
+        } else {
+          updateVoiceUIState('idle');
+        }
+      };
+      activeAudio.play().catch(err => {
+        console.warn('[TTS] Playback error:', err);
+        updateVoiceUIState('idle');
+      });
+    }
+
+    function stopAudioPlayback() {
+      if (activeAudio) {
+        try {
+          activeAudio.pause();
+          activeAudio.currentTime = 0;
+        } catch(e) {}
+        activeAudio = null;
+      }
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      updateVoiceUIState('idle');
+    }
+
+    function testVoiceSynthesis() {
+      speakText('AgentCore voice synthesis online and ready.');
+    }
+
+    function switchVoicePersona(persona) {
+      fetch('/api/voice/persona', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ persona: persona })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === 'ok') {
+          addTimelineEvent(`Voice persona switched to ${data.active_persona} (${data.tts_voice})`, 'success');
+          if (document.getElementById('voice-tab-voice')) {
+            document.getElementById('voice-tab-voice').textContent = data.tts_voice;
+          }
+          refreshVoiceHealth();
+        } else {
+          addTimelineEvent(`Persona switch error: ${data.error || 'Failed'}`, 'error');
+        }
+      })
+      .catch(err => {
+        console.error('[Voice] Failed to switch persona:', err);
+        addTimelineEvent('Failed to switch voice persona', 'error');
+      });
+    }
+
+    function refreshVoiceHealth() {
+      fetch('/api/voice/health')
+        .then(res => res.json())
+        .then(data => {
+          if (document.getElementById('voice-tab-status')) {
+            document.getElementById('voice-tab-status').textContent = data.ok ? 'Operational' : 'Degraded';
+          }
+          if (document.getElementById('voice-persona-select') && data.persona) {
+            document.getElementById('voice-persona-select').value = data.persona.toLowerCase();
+          }
+          if (document.getElementById('voice-tab-voice') && data.tts_voice) {
+            document.getElementById('voice-tab-voice').textContent = data.tts_voice;
+          }
+          if (document.getElementById('voice-tab-stt') && data.stt_provider) {
+            document.getElementById('voice-tab-stt').textContent = data.stt_provider;
+          }
+          addTimelineEvent('Voice health refreshed: ' + (data.ok ? 'OK' : 'Partial'), 'info');
+        })
+        .catch(err => console.error('[Voice] Health check error:', err));
+    }
+
+    // Keyboard shortcut: Ctrl+M to toggle mic
+    window.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        toggleVoiceListening();
+      }
+    });
+
+    // ============================================================
+    // CHAT INTERFACE
+    // ============================================================
+    function addMessage(role, content) {
+      const container = document.getElementById('messages');
+      const msg = document.createElement('div');
+
+      const roleClass = {
+        'user': 'message-user',
+        'assistant': 'message-bot',
+        'system': 'message-system'
+      }[role] || 'message-bot';
+
+      msg.className = `message ${roleClass}`;
+      msg.textContent = content;
+
+      container.appendChild(msg);
+      container.scrollTop = container.scrollHeight;
+
+      messageCount++;
+      document.getElementById('stat-messages').textContent = messageCount;
+    }
+
+    function sendMessage() {
+      const input = document.getElementById('userInput');
+      const message = input.value.trim();
+
+      if (!message) return;
+
+      addMessage('user', message);
+      input.value = '';
+      input.style.height = 'auto';
+
+      updateVoiceUIState('processing');
+
+      fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, session_id: 'web', speak: autoSpeak })
+      })
+      .then(res => res.json())
+      .then(data => {
+        updateVoiceUIState('idle');
+        if (data.response) {
+          addMessage('assistant', data.response);
+          if (autoSpeak) {
+            speakText(data.response);
+          }
+        }
+      })
+      .catch(err => {
+        console.error('[API] Error:', err);
+        updateVoiceUIState('idle');
+        addMessage('system', 'Error: Failed to send message');
+      });
+    }
+
+    function clearChat() {
+      const container = document.getElementById('messages');
+      container.innerHTML = '<div class="message message-system"><span>Chat cleared</span></div>';
+      messageCount = 1;
+      document.getElementById('stat-messages').textContent = messageCount;
+    }
+
+    function quickCommand(cmd) {
+      document.getElementById('userInput').value = cmd;
+      sendMessage();
+    }
+
+    function handleKeyPress(event) {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        sendMessage();
+      }
+    }
+
+    // ============================================================
+    // TIMELINE
+    // ============================================================
+    function addTimelineEvent(event, status = 'info') {
+      const container = document.getElementById('timeline');
+      const item = document.createElement('div');
+      item.className = 'timeline-item';
+
+      const markerClass = {
+        'success': 'timeline-marker success',
+        'error': 'timeline-marker error',
+        'info': 'timeline-marker'
+      }[status] || 'timeline-marker';
+
+      const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+
+      item.innerHTML = `
+        <div class="${markerClass}"></div>
+        <div class="timeline-content">
+          <div class="timeline-time">${time}</div>
+          <div class="timeline-event">${event}</div>
+        </div>
+      `;
+
+      container.appendChild(item);
+
+      // Keep timeline scrolled to bottom
+      container.scrollTop = container.scrollHeight;
+
+      // Limit to last 50 events
+      while (container.children.length > 50) {
+        container.removeChild(container.firstChild);
+      }
+    }
+
+    // ============================================================
+    // TABS
+    // ============================================================
+    function switchTab(tabName) {
+      // Update tab buttons
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.classList.remove('active');
+      });
+      event.target.classList.add('active');
+
+      // Update tab content
+      document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+      });
+      document.getElementById(`tab-${tabName}`).classList.add('active');
+    }
+
+    // ============================================================
+    // AUTO-RESIZE TEXTAREA
+    // ============================================================
+    const textarea = document.getElementById('userInput');
+    textarea.addEventListener('input', function() {
+      this.style.height = 'auto';
+      this.style.height = Math.min(this.scrollHeight, 150) + 'px';
+    });
+
+    // ============================================================
+    // INITIALIZATION
+    // ============================================================
+    window.addEventListener('DOMContentLoaded', () => {
+      console.log('[AgentCore] Dashboard initialized');
+      connectWebSocket();
+      initSpeechRecognition();
+      refreshVoiceHealth();
+
+      // Load initial status
+      fetch('/api/status')
+        .then(res => res.json())
+        .then(data => {
+          updateStatus(data);
+          addTimelineEvent('Dashboard loaded', 'success');
+        })
+        .catch(err => {
+          console.error('[API] Status error:', err);
+          addTimelineEvent('Failed to load status', 'error');
+        });
+    });
+  </script>
+</body>
+</html>

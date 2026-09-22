@@ -77,6 +77,9 @@ table.tools td{padding:4px 6px;border-bottom:1px solid #14142a;font-family:monos
 .tl .d{color:#cbd5e1;word-break:break-all}
 .tl .d.ok{color:#34d399}
 .tl .d.err{color:#f87171}
+.btn.listening{background:linear-gradient(135deg,#ef4444,#dc2626)!important;color:#fff!important;animation:micPulse 1.5s infinite}
+.btn.speaking{background:linear-gradient(135deg,#10b981,#059669)!important;color:#fff!important}
+@keyframes micPulse{0%{box-shadow:0 0 0 0 rgba(239,68,68,.7)}70%{box-shadow:0 0 0 10px rgba(239,68,68,0)}100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}}
 </style>
 </head>
 <body>
@@ -90,6 +93,7 @@ table.tools td{padding:4px 6px;border-bottom:1px solid #14142a;font-family:monos
     <span class="chip on" id="chip-provider">provider —</span>
     <span class="chip purple" id="chip-model">model —</span>
     <span class="chip cyan" id="chip-tools">tools —</span>
+    <span class="chip" id="chip-voice">voice —</span>
     <span class="chip" id="chip-exec">exec —</span>
     <span class="chip" id="chip-rt">runtime —</span>
     <span class="chip" id="chip-ws">WS ●</span>
@@ -113,6 +117,9 @@ table.tools td{padding:4px 6px;border-bottom:1px solid #14142a;font-family:monos
     </div>
     <div class="inputbar">
       <input id="inp" placeholder="Type a goal… (goes through Planner → Executor → Tools → Observer)" onkeydown="if(event.key==='Enter')send()">
+      <button id="micBtn" class="btn ghost" onclick="toggleMic()" title="Hold or click to speak (Ctrl+M)">🎤</button>
+      <button id="autoSpeakBtn" class="btn ghost" onclick="toggleAutoSpeak()" title="Toggle auto speech for replies">🔊 Auto</button>
+      <button id="stopAudioBtn" class="btn ghost" onclick="stopAudio()" style="display:none;" title="Stop audio playback">⏹ Stop</button>
       <button class="btn" onclick="send()">Submit → Runtime</button>
     </div>
   </div>
@@ -154,6 +161,7 @@ table.tools td{padding:4px 6px;border-bottom:1px solid #14142a;font-family:monos
         <div class="tab" data-tab="memory" onclick="tab('memory')">🧠 Memory</div>
         <div class="tab" data-tab="deps" onclick="tab('deps')">🔌 Dependencies</div>
         <div class="tab" data-tab="knowledge" onclick="tab('knowledge')">📚 Knowledge</div>
+        <div class="tab" data-tab="voice" onclick="tab('voice')">🎙 Voice</div>
         <div class="tab" data-tab="logs" onclick="tab('logs')">📜 Logs</div>
       </div>
       <div class="tabpane active" id="pane-timeline">
@@ -164,6 +172,24 @@ table.tools td{padding:4px 6px;border-bottom:1px solid #14142a;font-family:monos
       <div class="tabpane" id="pane-observer"><div class="eventlog" id="observerList" style="max-height:340px"><div>loading…</div></div></div>
       <div class="tabpane" id="pane-memory"><ul id="memoryList"><li>loading…</li></ul></div>
       <div class="tabpane" id="pane-deps"><ul id="depsList"><li>loading…</li></ul></div>
+      <div class="tabpane" id="pane-voice">
+        <div style="font-size:11px;padding:6px 0;">
+          <div class="kv"><span>Voice Subsystem:</span><span id="legacy-voice-status" style="color:#34d399">Ready</span></div>
+          <div class="kv">
+            <span>Active Persona:</span>
+            <select id="legacy-voice-persona" onchange="switchVoicePersona(this.value)" style="background:#14141f;color:#fff;border:1px solid #2a2a44;border-radius:4px;padding:2px 6px;font-size:10px">
+              <option value="jarvis">Jarvis (Male UK)</option>
+              <option value="friday">Friday (Female UK)</option>
+            </select>
+          </div>
+          <div class="kv"><span>TTS Voice:</span><span id="legacy-voice-tts" style="color:#a78bfa">en-GB-RyanNeural</span></div>
+          <div class="kv"><span>STT Engine:</span><span id="legacy-voice-stt" style="color:#22d3ee">WebSpeech / FasterWhisper</span></div>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:6px">
+          <button class="btn ghost" style="flex:1;padding:6px 8px;font-size:10px" onclick="speak('AgentCore voice online and ready.')">🔊 Test Voice</button>
+          <button class="btn ghost" style="flex:1;padding:6px 8px;font-size:10px" onclick="refreshVoice()">🔄 Refresh</button>
+        </div>
+      </div>
       <div class="tabpane" id="pane-knowledge">
         <div style="display:flex;gap:6px">
           <input id="kq" placeholder="search knowledge…" style="flex:1;background:#14141f;border:1px solid #2a2a44;color:#fff;padding:6px 8px;border-radius:8px;font-size:11px;outline:none">
@@ -216,16 +242,19 @@ async function send(){
     const r = await fetch('/api/resume', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({session_id: sid()})});
     const d = await r.json();
-    t.remove(); addMsg(d.response, 'bot'); refreshAll(); return;
+    t.remove(); addMsg(d.response, 'bot');
+    if(autoSpeak && d.response) speak(d.response);
+    refreshAll(); return;
   }
   addMsg(v, 'user');
   const t = typing();
   try{
     const r = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({message: v, session_id: sid()})});
+      body: JSON.stringify({message: v, session_id: sid(), speak: autoSpeak})});
     const d = await r.json();
     t.remove();
     addMsg(d.response, 'bot');
+    if(autoSpeak && d.response) speak(d.response);
     refreshAll();
   }catch(e){ t.remove(); addMsg('Error: '+e.message, 'bot'); }
 }
@@ -432,7 +461,170 @@ async function ksearch(){
   const r = await (await fetch('/api/knowledge/search?q='+encodeURIComponent(q)+'&top_k=5')).json();
   $('knowledgeList').innerHTML = (r.hits.length? r.hits.map(h=>`<li>${h}</li>`).join('') : '<li>(no hits)</li>');
 }
-function refreshAll(){ refreshLiveExec(); refreshToolLive(); refreshTimeline(); refreshObserver(); refreshDevices(); refreshRegistry(); refreshLogs(); refreshMemory(); refreshRuntime(); refreshExecutor(); }
+// ---------- VOICE & SPEECH INTERACTION ----------
+let isListening = false;
+let autoSpeak = false;
+let activeAudio = null;
+let recognition = null;
+let mediaRecorder = null;
+let audioChunks = [];
+
+function initSpeech(){
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(SpeechRec){
+    recognition = new SpeechRec();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    recognition.onstart = () => updateVoiceUI('listening');
+    recognition.onresult = ev => {
+      let tr = '';
+      for(let i = ev.resultIndex; i < ev.results.length; i++) tr += ev.results[i][0].transcript;
+      $('inp').value = tr;
+      if(ev.results[0].isFinal){
+        stopListening();
+        send();
+      }
+    };
+    recognition.onerror = () => stopListening();
+    recognition.onend = () => stopListening();
+  }
+}
+
+function toggleMic(){
+  if(isListening) stopListening();
+  else startListening();
+}
+
+function startListening(){
+  if(activeAudio){ activeAudio.pause(); activeAudio = null; }
+  if(recognition){
+    try{ recognition.start(); isListening = true; updateVoiceUI('listening'); return; }
+    catch(e){}
+  }
+  // Server Faster-Whisper fallback via MediaRecorder
+  if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
+    navigator.mediaDevices.getUserMedia({audio:true}).then(stream=>{
+      mediaRecorder = new MediaRecorder(stream);
+      audioChunks = [];
+      mediaRecorder.ondataavailable = e => { if(e.data.size>0) audioChunks.push(e.data); };
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(t=>t.stop());
+        const blob = new Blob(audioChunks, {type:'audio/webm'});
+        try{
+          updateVoiceUI('processing');
+          const res = await fetch('/api/voice/transcribe', {method:'POST', headers:{'Content-Type':'audio/webm'}, body:blob});
+          const d = await res.json();
+          if(d.transcript){ $('inp').value = d.transcript; send(); }
+        }catch(e){ console.error(e); }
+        finally{ updateVoiceUI('idle'); }
+      };
+      mediaRecorder.start();
+      isListening = true;
+      updateVoiceUI('listening');
+    }).catch(err=>{ alert('Mic access error: '+err.message); updateVoiceUI('idle'); });
+  } else {
+    alert('Speech recognition is not supported in this browser.');
+  }
+}
+
+function stopListening(){
+  if(recognition && isListening){ try{ recognition.stop(); }catch(e){} }
+  if(mediaRecorder && mediaRecorder.state==='recording'){ mediaRecorder.stop(); }
+  isListening = false;
+  updateVoiceUI('idle');
+}
+
+function updateVoiceUI(st){
+  const btn = $('micBtn');
+  const chip = $('chip-voice');
+  if(!btn) return;
+  btn.classList.remove('listening', 'speaking');
+  if(st==='listening'){
+    btn.classList.add('listening');
+    if(chip){ chip.textContent = 'voice ● listening'; chip.className = 'chip on'; }
+  } else if(st==='speaking'){
+    btn.classList.add('speaking');
+    if(chip){ chip.textContent = 'voice ● speaking'; chip.className = 'chip purple'; }
+    if($('stopAudioBtn')) $('stopAudioBtn').style.display = 'inline-block';
+  } else {
+    if(chip){ chip.textContent = 'voice ● ready'; chip.className = 'chip'; }
+    if($('stopAudioBtn')) $('stopAudioBtn').style.display = 'none';
+  }
+}
+
+function toggleAutoSpeak(){
+  autoSpeak = !autoSpeak;
+  const btn = $('autoSpeakBtn');
+  if(btn){
+    btn.style.color = autoSpeak ? '#34d399' : '#9ca3af';
+    btn.style.borderColor = autoSpeak ? 'rgba(52,211,153,.4)' : '#2a2a44';
+  }
+}
+
+function stopAudio(){
+  if(activeAudio){ activeAudio.pause(); activeAudio = null; }
+  if('speechSynthesis' in window) window.speechSynthesis.cancel();
+  updateVoiceUI('idle');
+}
+
+function speak(text){
+  if(!text) return;
+  stopAudio();
+  updateVoiceUI('speaking');
+  const url = '/api/voice/synthesize?text=' + encodeURIComponent(text);
+  activeAudio = new Audio(url);
+  activeAudio.onended = () => updateVoiceUI('idle');
+  activeAudio.onerror = () => {
+    if('speechSynthesis' in window){
+      const u = new SpeechSynthesisUtterance(text);
+      u.onend = () => updateVoiceUI('idle');
+      u.onerror = () => updateVoiceUI('idle');
+      window.speechSynthesis.speak(u);
+    } else {
+      updateVoiceUI('idle');
+    }
+  };
+  activeAudio.play().catch(e=>{
+    if('speechSynthesis' in window){
+      const u = new SpeechSynthesisUtterance(text);
+      u.onend = () => updateVoiceUI('idle');
+      window.speechSynthesis.speak(u);
+    } else {
+      updateVoiceUI('idle');
+    }
+  });
+}
+
+function switchVoicePersona(p){
+  fetch('/api/voice/persona', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({persona: p})
+  }).then(r=>r.json()).then(d=>{
+    if(d.status==='ok') refreshVoice();
+  }).catch(e=>console.error(e));
+}
+
+async function refreshVoice(){
+  try{
+    const d = await (await fetch('/api/voice/health')).json();
+    if($('chip-voice')) $('chip-voice').textContent = 'voice ● ' + (d.persona||'ready');
+    if($('legacy-voice-status')) $('legacy-voice-status').textContent = d.ok ? 'Operational' : 'Ready';
+    if($('legacy-voice-persona') && d.persona) $('legacy-voice-persona').value = d.persona.toLowerCase();
+    if($('legacy-voice-tts') && d.tts_voice) $('legacy-voice-tts').textContent = d.tts_voice;
+    if($('legacy-voice-stt') && d.stt_provider) $('legacy-voice-stt').textContent = d.stt_provider;
+  }catch(e){}
+}
+
+window.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'm') {
+    e.preventDefault();
+    toggleMic();
+  }
+});
+
+function refreshAll(){ refreshLiveExec(); refreshToolLive(); refreshTimeline(); refreshObserver(); refreshDevices(); refreshRegistry(); refreshLogs(); refreshMemory(); refreshRuntime(); refreshExecutor(); refreshVoice(); }
 
 // ---------- WebSocket: live events drive the timeline in real time ----------
 function connectWS(){
@@ -460,6 +652,7 @@ function connectWS(){
   };
 }
 
+initSpeech();
 refreshAll();
 setInterval(refreshAll, 2000);
 connectWS();

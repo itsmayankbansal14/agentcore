@@ -64,7 +64,7 @@ Launch AgentCore
 ## Current status (2026-08-14)
 
 ### Done and verified
-- Bootstrap: strict venv rule + Python range `>= 3.11 and < 3.13` implemented;
+- Bootstrap: strict venv rule + Python 3.12 ONLY requirement implemented;
   14 hermetic rule tests + acceptance suite green.
 - Voice subsystem built and tested hermetically; **real speech round-trip
   verified** in the sandbox: edge-tts synthesized "open youtube on my phone" →
@@ -127,7 +127,7 @@ ui/               dashboard template + legacy JARVIS inspiration
 - Linux, headless, ~2 GB RAM, no root/apt/KVM. Cannot build Windows EXEs, run
   real Android devices, or install Chromium system libs (browser launch is
   BROKEN here; READY on Windows).
-- Python 3.13.14 is the sandbox default; **AgentCore requires 3.11/3.12**.
+- Python 3.13.14 is the sandbox default; **AgentCore requires 3.12 ONLY**.
   A real 3.12 interpreter is available via uv for verification:
   `uv python install 3.12`.
 - Installed pip packages are **not persisted** between sessions; `data/`,

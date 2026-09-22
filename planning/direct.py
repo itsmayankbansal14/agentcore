@@ -30,13 +30,46 @@ class DirectToolRouter:
 
     Returns None when the goal is chat-like, multi-intent, or ambiguous —
     in that case the normal LLM loop runs unchanged.
+
+    Capability registration (preferred for future tools):
+        router.register_capability(
+            name="my_feature",
+            matcher=lambda low: "my trigger" in low,
+            builder=lambda goal, target: [("my_tool", {"arg": ...})]
+        )
+
+    Existing hardcoded routes are preserved for backward compatibility.
+    New deterministic capabilities should use registration instead of
+    adding another if/elif branch.
     """
+
+    def __init__(self) -> None:
+        self._capabilities: list[dict] = []   # registered capability handlers
+
+    def register_capability(self, name: str, matcher, builder) -> None:
+        """Register a new deterministic capability.
+        matcher(low_goal) -> bool
+        builder(goal, target_device) -> list[tuple[tool_name, params]] | None
+        """
+        self._capabilities.append({
+            "name": name,
+            "matcher": matcher,
+            "builder": builder
+        })
 
     def route(self, goal: str, target_device: str = "windows",
               ) -> list[tuple[str, dict[str, Any]]] | None:
         low = " ".join((goal or "").lower().split())
         if not low:
             return None
+
+        # 1) Try registered capabilities first (future-proof path)
+        for cap in self._capabilities:
+            if cap["matcher"](low):
+                result = cap["builder"](goal, target_device)
+                if result is not None:
+                    return result
+
         # personal-memory commands are checked FIRST: their payload is a
         # description, not a second intent — "save this website … and I could
         # use it for X" must not be blocked by the complexity guard.
@@ -83,8 +116,11 @@ class DirectToolRouter:
             if q:
                 from urllib.parse import quote
                 url = "https://www.youtube.com/results?search_query=" + quote(q)
+            # Navigation reporting is not verification. This separate tool
+            # reads live page state and its observer records the result.
             return [("browser_open", {}),
-                    ("browser_navigate", {"url": url})]
+                    ("browser_navigate", {"url": url}),
+                    ("browser_verify_url", {"expected": url})]
 
         return None
 
@@ -227,14 +263,14 @@ def describe(tool_name: str, result) -> str:
     if tool_name == "clipboard_get":
         return f"📋 Clipboard: {d.get('text') or '(empty)'}"
     if tool_name == "browser_open":
-        return "🌐 Browser opened (headless Chromium)."
+        return "Browser window opened."
     if tool_name == "browser_navigate":
         url = d.get("url", "")
         if "youtube.com" in str(url):
             return f"▶️ Opened YouTube in the browser: {url}"
         return f"🌐 Navigated to {url}."
     if tool_name == "browser_verify_url":
-        return (f"✅ URL verified: {d.get('url')}." if result.ok
+        return (f"URL verified: {d.get('current')}." if result.ok
                 else f"❌ URL check failed: {d}")
     if tool_name == "android_open_youtube":
         return "📱 Opened YouTube on your phone."

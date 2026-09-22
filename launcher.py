@@ -24,15 +24,17 @@ DEFAULT_HOST = "127.0.0.1"   # localhost-only for the desktop app (browser + tra
 
 
 class RuntimeServerThread(threading.Thread):
-    """Runs the shared AgentCore runtime (FastAPI) in a dedicated thread.
+    """Runs the shared FastAPI runtime over the same AgentApp used by voice."""
 
-    Uses dashboard.app.create_app — the SAME factory as development mode —
-    so the desktop app, web dashboard, Android client, CLI and voice all
-    talk to one runtime."""
-
-    def __init__(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
-                 log_level: str = "warning") -> None:
+    def __init__(
+        self,
+        app,
+        host: str = DEFAULT_HOST,
+        port: int = DEFAULT_PORT,
+        log_level: str = "warning",
+    ) -> None:
         super().__init__(daemon=True, name="agentcore-runtime")
+        self.app_instance = app
         self.host = host
         self.port = port
         self.log_level = log_level
@@ -41,9 +43,19 @@ class RuntimeServerThread(threading.Thread):
     def run(self) -> None:
         import uvicorn
         from dashboard.app import create_app
-        self.server = uvicorn.Server(uvicorn.Config(
-            create_app(), host=self.host, port=self.port, log_level=self.log_level))
-        self.server.run()   # blocks until should_exit
+
+        application = create_app(self.app_instance)
+
+        self.server = uvicorn.Server(
+            uvicorn.Config(
+                application,
+                host=self.host,
+                port=self.port,
+                log_level=self.log_level,
+            )
+        )
+
+        self.server.run()
 
     # -- supervision ------------------------------------------------------
     def wait_until_ready(self, timeout: float = 20.0) -> bool:
@@ -67,6 +79,73 @@ class RuntimeServerThread(threading.Thread):
             print("[launcher] runtime did not stop in time")
 
 
+class VoiceRuntimeThread(threading.Thread):
+    """Runs the persistent VoiceManager over the shared AgentApp."""
+
+    def __init__(self, app) -> None:
+        super().__init__(
+            daemon=True,
+            name="agentcore-voice",
+        )
+        self.app_instance = app
+        self.voice = None
+        self.loop = None
+        self.error: Exception | None = None
+
+    def run(self) -> None:
+        import asyncio
+        try:
+            from voice.manager import build_voice
+
+            self.voice = build_voice(self.app_instance)
+
+            health = self.voice.health()
+
+            print("\n[voice] health:")
+            for component, state in health.items():
+                print(
+                    f"[voice] {component}: "
+                    f"{state.get('state', 'UNKNOWN')} "
+                    f"- {state.get('detail', '')}"
+                )
+
+            if health["stt"]["state"] != "READY":
+                raise RuntimeError(
+                    f"STT is not ready: "
+                    f"{health['stt'].get('detail', 'unknown error')}"
+                )
+
+            if health["microphone"]["state"] != "READY":
+                raise RuntimeError(
+                    f"Microphone unavailable: "
+                    f"{health['microphone'].get('detail', '')}"
+                )
+
+            print("[voice] persistent voice runtime started")
+            print("[voice] speak naturally — AgentCore is listening")
+
+            # Use dedicated event loop (no asyncio.run inside thread)
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
+            self.loop.run_until_complete(self.voice.run_loop_async())
+
+        except Exception as exc:
+            self.error = exc
+            print(f"[voice] FATAL: {exc}")
+
+    def stop(self, timeout: float = 5.0) -> None:
+        if self.voice is not None:
+            try:
+                self.voice.stop()
+            except Exception:
+                pass
+
+        self.join(timeout=timeout)
+
+        if self.is_alive():
+            print("[launcher] voice runtime did not stop in time")
+
+
 def _tray_icon() -> "object | None":
     """Build a small purple orb icon for the tray. None if PIL missing."""
     try:
@@ -80,65 +159,30 @@ def _tray_icon() -> "object | None":
     return img
 
 
-def run_launcher(port: int = DEFAULT_PORT, open_browser: bool = True,
-                 tray: bool = True) -> int:
-    """Start the runtime, open the dashboard, keep alive (tray or console)."""
-    url = f"http://localhost:{port}"
-    print("┌──────────────────────────────────────────────┐")
-    print("│  AgentCore — desktop runtime launcher        │")
-    print(f"│  dashboard → {url}          │")
-    print("└──────────────────────────────────────────────┘")
+def run_launcher(
+    app=None,
+    port: int = DEFAULT_PORT,
+    open_browser: bool = True,
+    tray: bool = True,
+    enable_voice: bool | None = None,
+) -> int:
+    """Start the runtime + persistent voice (when enabled).
 
-    runtime = RuntimeServerThread(port=port)
-    runtime.start()
+    This function now delegates to the shared startup path in core.runtime_start.
+    """
+    from core.runtime_start import start_runtime_and_voice
 
-    if not runtime.wait_until_ready():
-        print("[launcher] ❌ runtime failed to start (is the port busy?)")
-        return 1
-    print(f"[launcher] ✅ runtime ready → {url}")
+    if app is None:
+        from core.app import AgentApp
+        app = AgentApp.create()
 
-    if open_browser:
-        try:
-            webbrowser.open(url)
-            print("[launcher] opened dashboard in your default browser")
-        except Exception:  # noqa: BLE001
-            print("[launcher] could not open browser — visit manually:", url)
-
-    stop_cb = lambda: runtime.stop()  # noqa: E731
-
-    if tray:
-        try:
-            import pystray
-            from pystray import Menu, MenuItem
-        except Exception:  # noqa: BLE001
-            pystray = None
-        if pystray is not None:
-            img = _tray_icon()
-            icon = pystray.Icon(
-                "agentcore",
-                img or __import__("PIL").Image.new("RGBA", (1, 1), (124, 58, 237, 255)),
-                "AgentCore",
-                Menu(
-                    MenuItem("Open Dashboard", lambda: webbrowser.open(url)),
-                    MenuItem("Stop AgentCore", lambda: (stop_cb(), icon.stop())),
-                ),
-            )
-            print("[launcher] running in system tray — right-click the icon to stop")
-            icon.run()          # blocks until icon.stop()
-            runtime.stop()
-            print("[launcher] stopped cleanly")
-            return 0
-
-    # no tray → console mode
-    print("[launcher] running in console mode — press Ctrl+C to stop")
-    try:
-        while runtime.is_alive():
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\n[launcher] Ctrl+C received — shutting down…")
-    runtime.stop()
-    print("[launcher] stopped cleanly")
-    return 0
+    return start_runtime_and_voice(
+        app,
+        port=port,
+        enable_voice=enable_voice,
+        open_browser=open_browser,
+        tray=tray,
+    )
 
 
 if __name__ == "__main__":

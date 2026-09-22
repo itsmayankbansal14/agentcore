@@ -640,7 +640,7 @@ Every permission is requested lazily, only when the user first uses the feature,
 
 | Layer | Choice | Rationale |
 |---|---|---|
-| Language (laptop) | **Python 3.11+** (asyncio) | AI ecosystem, SDKs, fast iteration; agent workloads are IO-bound |
+| Language (laptop) | **Python 3.12** (asyncio) | AI ecosystem, SDKs, fast iteration; agent workloads are IO-bound |
 | API server (laptop) | **FastAPI + Uvicorn** | REST + native WebSocket in one framework, Pydantic schemas shared with tools |
 | Persistence | **SQLite (WAL) + SQLAlchemy + Alembic** | zero-ops local, transactional, crash-safe; single-user fits perfectly |
 | Vectors | **sqlite-vec** (MVP) → Chroma/Qdrant (scale) behind `memory/vector.py` | same-file first; swappable |

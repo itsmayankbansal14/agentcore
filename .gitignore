@@ -1,33 +1,111 @@
-# Secrets — never commit
-.env
+# ============================================================
+# AgentCore .gitignore
+# Updated: 2026-09-17
+# ============================================================
 
-# Runtime data + databases (per review: ignore *.db, *.db-shm, *.db-wal)
+# Secrets — NEVER COMMIT
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+secrets/
+
+# Runtime Data & Databases
 data/
 *.db
 *.db-shm
 *.db-wal
+*.db-journal
 *.backup-*.db
+screenshots/
+tts_cache/
 
 # Logs
 logs/
+*.log
+*.jsonl
 
-# Build outputs (PyInstaller) — never commit these
+# Build Outputs (PyInstaller)
 dist/
 build/
 *.spec
+*.exe
+*.zip
 
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
 .venv/
+venv/
+ENV/
+env/
 
-# Editor / OS
-.vscode/
-.DS_Store
-Thumbs.db
-
-# Coverage / dev artifacts
-.coverage
-.coveragerc
-htmlcov/
+# Testing
 .pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.local/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swn
+*~
+
+# Node modules (if any JS tooling added)
+node_modules/
+
+# Package manager locks (keep requirements.txt only)
+poetry.lock
+Pipfile.lock
+
+# Hugging Face cache (STT models)
+# Keep in .cache/huggingface/ on user's machine
+# Don't commit model weights
+.cache/
+
+# Playwright browsers (installed per-user)
+.playwright/

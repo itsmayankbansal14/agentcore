@@ -12,9 +12,9 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done (kept for context)
 ### Bootstrap correctness
 - [~] `ensure_venv()` strict rule: frozen → bundled; inside `.venv` → continue;
       otherwise create + re-exec into `.venv`. Global deps are NEVER proof.
-- [~] Python range enforced: `>= 3.11 AND < 3.13`; 3.13+ rejected.
+- [x] Python requirement enforced: Python 3.12 ONLY; 3.11 and 3.13+ rejected.
 - [x] Hermetic tests for: global-with-deps, no .venv, existing .venv, wrong
-      version (3.10/3.13), correct version (3.11/3.12).
+      version (3.10/3.11/3.13), correct version (3.12 ONLY).
 - [ ] Verify the full chain on a REAL Python 3.12 clean machine end-to-end
       (deps install inside the fresh venv was still failing in the last
       clean-run — see CONTEXT.md "Current status").

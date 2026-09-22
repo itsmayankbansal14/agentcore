@@ -6,7 +6,7 @@ Bootstrap environment rules (hermetic — monkeypatched, never really re-execs):
   3. global Python WITH deps         → NOT bootstrapped; create .venv + re-exec
   4. no .venv (global python)        → create .venv + re-exec into main.py
   5. wrong Python version (3.10/3.13)→ REJECTED with a clear detail
-  6. correct Python version (3.11/3.12) → accepted
+#   6. correct Python version (3.12 only) → accepted
 
 The re-exec target must always be main.py (bootstrap.py has no __main__).
 """
@@ -128,11 +128,11 @@ def test_no_venv_creates_then_reexecs_main_py(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 5) python version range: reject 3.10 / 3.13, accept 3.11 / 3.12
+# 5) python version range: reject everything except 3.12
 # ---------------------------------------------------------------------------
 @pytest.mark.unit
 @pytest.mark.parametrize("major,minor,expected", [
-    (3, 9, False), (3, 10, False), (3, 11, True), (3, 12, True),
+    (3, 9, False), (3, 10, False), (3, 11, False), (3, 12, True),
     (3, 13, False), (3, 14, False), (4, 0, False),
 ])
 def test_python_version_range(monkeypatch, major, minor, expected):
@@ -142,7 +142,7 @@ def test_python_version_range(monkeypatch, major, minor, expected):
     if major == 3 and minor >= 13:
         assert "3.13+" in r["detail"] or "not supported" in r["detail"]
     if expected:
-        assert "3.11" in r["detail"] and "3.13" in r["detail"]
+        assert "3.12" in r["detail"]
 
 
 # ---------------------------------------------------------------------------

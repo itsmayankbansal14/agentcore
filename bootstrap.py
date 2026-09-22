@@ -37,25 +37,49 @@ LOCK_DIR = ROOT / "data" / ".bootstrap"
 REQ_HASH_FILE = LOCK_DIR / "requirements.sha256"
 PLAYWRIGHT_MARKER = LOCK_DIR / "playwright.installed"
 
-# supported: Python >= 3.11 AND Python < 3.13 (3.13+ must be REJECTED)
-MIN_PY = (3, 11)
-MAX_PY_EXCLUSIVE = (3, 13)
+# STRICT REQUIREMENT: Python 3.12 ONLY
+REQUIRED_PY = (3, 12)
+
+
+def is_supported_python() -> bool:
+    """Return True ONLY for Python 3.12.x (strict requirement)."""
+    return sys.version_info[:2] == REQUIRED_PY
+
+
+def _find_supported_python() -> str | None:
+    """Find Python 3.12 on Windows using the py launcher."""
+    if os.name != "nt":
+        return None
+    try:
+        r = subprocess.run(
+            ["py", "-3.12", "-c", "import sys; print(sys.executable)"],
+            capture_output=True, text=True, timeout=5
+        )
+        if r.returncode == 0:
+            py_path = r.stdout.strip()
+            if py_path and Path(py_path).exists():
+                return py_path
+    except Exception:
+        pass
+    return None
+
 
 # core deps that indicate "already bootstrapped"
 CORE_DEPS = ["structlog", "fastapi", "sqlalchemy", "openai"]
 
 
 # ---------------------------------------------------------------------------
-# python version (hard range: >= 3.11 AND < 3.13)
+# python version (STRICT: 3.12 ONLY)
 # ---------------------------------------------------------------------------
 def check_python() -> dict:
     cur = sys.version_info[:2]
-    ok = MIN_PY <= cur < MAX_PY_EXCLUSIVE
-    detail = (f"{platform.python_version()} "
-              f"(need >= {MIN_PY[0]}.{MIN_PY[1]} and < "
-              f"{MAX_PY_EXCLUSIVE[0]}.{MAX_PY_EXCLUSIVE[1]})")
-    if cur >= MAX_PY_EXCLUSIVE:
-        detail += " — Python 3.13+ is NOT supported, use 3.11 or 3.12"
+    ok = is_supported_python()
+    detail = f"{platform.python_version()} (REQUIRED: 3.12.x ONLY)"
+    if not ok:
+        if cur < REQUIRED_PY:
+            detail += f" — Python {cur[0]}.{cur[1]} is too old, upgrade to 3.12"
+        else:
+            detail += f" — Python {cur[0]}.{cur[1]} is not supported, use 3.12 only"
     return {"name": "python", "ok": ok, "detail": detail}
 
 
@@ -67,9 +91,13 @@ def _inside_project_venv() -> bool:
     if os.environ.get("AGENTCORE_IN_VENV") == "1":
         return True
     try:
-        return Path(sys.prefix).resolve().is_relative_to(VENV_DIR.resolve())
+        # sys.prefix is the authoritative virtual-environment identity.
+        # sys.executable can be retained by embedded launchers and test hosts.
+        prefix = Path(sys.prefix).resolve()
+        venv = VENV_DIR.resolve()
+        return prefix == venv or venv in prefix.parents
     except Exception:  # noqa: BLE001
-        return str(Path(sys.prefix)).startswith(str(VENV_DIR))
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +171,10 @@ def ensure_dependencies() -> dict:
             pkg = line.split(">=")[0].split("==")[0].split("<")[0].split("[")[0].strip()
             # map package name to import module
             mod = {"pyyaml": "yaml", "pydantic-settings": "pydantic_settings",
-                   "beautifulsoup4": "bs4", "python-dotenv": "dotenv"}.get(pkg, pkg)
+                   "beautifulsoup4": "bs4", "python-dotenv": "dotenv",
+                   "pillow": "PIL", "adb-shell": "adb_shell",
+                   "rapidocr-onnxruntime": "rapidocr_onnxruntime",
+                   "edge-tts": "edge_tts", "faster-whisper": "faster_whisper"}.get(pkg, pkg)
             if not _importable(mod):
                 missing.append(pkg)
         if missing:
@@ -172,28 +203,38 @@ def ensure_venv() -> dict:
     if _inside_project_venv():
         return {"name": "venv", "ok": True, "detail": f"running inside {sys.prefix}"}
 
+    # Try to find a supported Python interpreter
+    python_to_use = sys.executable
+    if not is_supported_python():
+        found = _find_supported_python()
+        if found:
+            python_to_use = found
+        else:
+            return {"name": "venv", "ok": False,
+                    "detail": "No supported Python (3.11 or 3.12) found"}
+
     # outside the project venv → create it (if missing) and re-exec
+    # MUST use Python 3.12
     if not VENV_DIR.exists():
         try:
-            subprocess.run([sys.executable, "-m", "venv", str(VENV_DIR)],
+            subprocess.run([python_to_use, "-m", "venv", str(VENV_DIR)],
                            check=True, capture_output=True, timeout=300)
         except Exception as e:  # noqa: BLE001
             return {"name": "venv", "ok": False,
-                    "detail": f"could not create .venv: {e}"}
+                    "detail": f"could not create .venv with Python 3.12: {e}"}
 
-    venv_py = VENV_DIR / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    candidates = (VENV_DIR / "Scripts/python.exe", VENV_DIR / "bin/python")
+    venv_py = next((candidate for candidate in candidates if candidate.exists()), candidates[0])
     if not venv_py.exists():
         return {"name": "venv", "ok": False, "detail": ".venv python missing"}
 
-    # re-exec into main.py inside the venv — main.py re-runs bootstrap
-    # (now AGENTCORE_IN_VENV=1 / inside-venv → continues to deps, playwright,
-    # workspace, db, then the primary interface).
+    # re-exec into main.py inside the venv
     env = dict(os.environ)
     env["AGENTCORE_IN_VENV"] = "1"
     try:
         r = subprocess.run([str(venv_py), str(ROOT / "main.py")]
                            + sys.argv[1:], cwd=ROOT, env=env)
-        sys.exit(r.returncode)   # never returns (parent exits with child's code)
+        sys.exit(r.returncode)
     except Exception as e:  # noqa: BLE001
         return {"name": "venv", "ok": False, "detail": f"re-exec failed: {e}"}
     return {"name": "venv", "ok": True, "detail": "bootstrapped"}

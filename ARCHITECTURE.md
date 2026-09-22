@@ -66,7 +66,7 @@ companion, voice, REPL — talks to the same runtime object/API.
 
 `run.bat` → `python main.py` → `bootstrap.run()`:
 
-1. **Python check** — requires `>= 3.11 AND < 3.13` (3.13+ rejected).
+1. **Python check** — requires Python 3.12 ONLY (3.11 and 3.13+ rejected).
 2. **Venv rule** — frozen → bundled; inside `AgentCore/.venv` → continue;
    otherwise create `.venv` if missing and **re-exec `main.py` with the venv
    interpreter** (`AGENTCORE_IN_VENV=1`). Global Python with deps installed is

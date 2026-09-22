@@ -24,8 +24,8 @@ ROOT = Path(__file__).resolve().parent.parent
 def test_python_version_check():
     import bootstrap
     r = bootstrap.check_python()
-    assert r["ok"] is True, r["detail"]          # we run 3.11+ here
-    assert sys.version_info[:2] >= (3, 11)
+    assert r["ok"] is True, r["detail"]          # we run 3.12 only
+    assert sys.version_info[:2] == (3, 12)
 
 
 @pytest.mark.integration
