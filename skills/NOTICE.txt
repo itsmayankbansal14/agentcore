@@ -1,0 +1,10 @@
+AgentCore Skills Subsystem
+
+Portions of this directory are adapted from OpenJarvis
+src/openjarvis/skills/*
+
+OpenJarvis is licensed under Apache License 2.0
+Copyright OpenJarvis Contributors
+
+Adapted for AgentCore under Apache-2.0 license compatibility.
+No modifications to original OpenJarvis codebase were made.

@@ -80,7 +80,12 @@ voice:
   # openrouter (whisper via your OpenRouter key — needs audio balance) |
   # vosk (offline, light). tts: edge (neural) | sapi (windows offline).
   stt_provider: fasterwhisper
-  whisper_model: base.en          # tiny.en (faster) | base.en | small.en
+  stt_language: auto              # auto (multilingual) | en | hi
+  # whisper_model is auto-selected based on stt_language:
+  #   - "en" → base.en (English-only, faster)
+  #   - "auto" or other → base (multilingual)
+  # Override only if you need a specific model (tiny.en, small.en, etc.)
+  # whisper_model: base.en
   stt_model: openai/whisper-1     # used only by the openrouter STT provider
   vosk_model_path: data/voice/vosk-model
   tts_provider: edge
@@ -90,3 +95,6 @@ voice:
   silence_after_s: 1.2
   max_record_s: 15.0
   wake_word_enabled: false   # deferred until the basic pipeline is reliable
+
+  # Phase 4: Control whether persistent voice starts automatically in the launcher
+  enable_on_launch: true    # Packaged default: start persistent voice

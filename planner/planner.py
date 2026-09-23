@@ -14,6 +14,7 @@ import json
 import re
 from typing import Any
 
+from skills.catalog import SkillCatalog
 import structlog
 
 from sqlalchemy import select
@@ -30,9 +31,10 @@ COMPLEXITY_THRESHOLD = 70
 
 
 class Planner:
-    def __init__(self, db_session_factory, reasoner: Reasoner) -> None:
+    def __init__(self, db_session_factory, reasoner: Reasoner, skill_catalog: SkillCatalog) -> None:
         self.sf = db_session_factory
         self.reasoner = reasoner
+        self.skill_catalog = skill_catalog
 
     # ------------------------------------------------------------------ queries
     def get_active_plan(self, session_id: str) -> Plan | None:
@@ -74,8 +76,9 @@ class Planner:
         return await self.create_plan(session_id, goal)
 
     async def create_plan(self, session_id: str, goal: str) -> tuple[Plan, PlanStep | None]:
+        enhanced_goal, relevant_skills = self.enhance_goal_with_skills(goal)
         plan_id = new_id("plan_")
-        steps = await self._decompose(goal)
+        steps = await self._decompose(enhanced_goal)
         with self.sf() as s:
             plan = Plan(id=plan_id, session_id=session_id, goal=goal, status="ACTIVE")
             s.add(plan)
@@ -158,3 +161,40 @@ class Planner:
                         "PLANNING": "🧠"}.get(st.status, "⬜")
                 lines.append(f"  {mark} {st.order_idx + 1}. {st.title} [{st.status}]")
             return "\n".join(lines)
+
+    def find_relevant_skills(self, goal: str, max_results: int = 5) -> list[str]:
+        """Find skills relevant to the current goal."""
+        matches = []
+        goal_lower = goal.lower()
+        
+        for skill_name in self.skill_catalog.list_names():
+            manifest = self.skill_catalog.get(skill_name)
+            if manifest:
+                if any(tag.lower() in goal_lower for tag in manifest.tags):
+                    matches.append(skill_name)
+                elif manifest.description and any(word in goal_lower 
+                                               for word in manifest.description.lower().split()):
+                    matches.append(skill_name)
+                    
+        return matches[:max_results]
+
+    def enhance_goal_with_skills(self, goal: str) -> tuple[str, list[str]]:
+        """Enhance the goal with relevant skill information for better planning."""
+        relevant_skills = self.find_relevant_skills(goal)
+        if not relevant_skills:
+            return goal, []
+            
+        skill_info = []
+        for skill_name in relevant_skills:
+            manifest = self.skill_catalog.get(skill_name)
+            if manifest:
+                skill_info.append(f"- {skill_name}: {manifest.description}")
+                
+        enhanced_goal = f"""{goal}
+
+Available relevant skills that could help:
+{chr(10).join(skill_info)}
+
+Consider using these skills if applicable to the task."""
+        
+        return enhanced_goal, relevant_skills

@@ -13,7 +13,7 @@ informal until v1.0.
   with installed deps as "bootstrapped". Rule is now strict: frozen → bundled
   runtime; interpreter inside `AgentCore/.venv` → continue; otherwise create
   `.venv` and re-exec `main.py` inside it. Supported Python range enforced:
-  `>= 3.11 AND < 3.13` (3.13+ rejected with a clear message).
+  Python 3.12 ONLY (3.11 and 3.13+ rejected with a clear message).
 - **Voice as primary interface (in progress)** — `python main.py` should
   initialize the voice subsystem as the primary workflow instead of launching
   straight into the dashboard; dashboard stays as the secondary transcript/

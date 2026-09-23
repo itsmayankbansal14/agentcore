@@ -23,7 +23,9 @@ from pathlib import Path
 from core.app import AgentApp
 
 ROOT = Path(__file__).resolve().parent.parent
-TEMPLATE = Path(__file__).resolve().parent / "templates" / "dashboard.html"
+TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
+MODERN_TEMPLATE = TEMPLATE_DIR / "modern_dashboard.html"
+LEGACY_TEMPLATE = TEMPLATE_DIR / "dashboard.html"
 
 DEFAULT_PORT = 8000
 
@@ -33,7 +35,11 @@ def create_app(agent: AgentApp | None = None):
     from api.server import create_app as build_base
 
     agent_app = agent or AgentApp.create()
-    app = build_base(agent_app, template=TEMPLATE if TEMPLATE.exists() else None)
+
+    # Use modern dashboard if available, fall back to legacy
+    template = MODERN_TEMPLATE if MODERN_TEMPLATE.exists() else (LEGACY_TEMPLATE if LEGACY_TEMPLATE.exists() else None)
+
+    app = build_base(agent_app, template=template)
     return app
 
 

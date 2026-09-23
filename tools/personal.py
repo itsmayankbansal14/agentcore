@@ -5,10 +5,51 @@ memory.personal.PersonalMemory (SQLite) — real storage, no placeholders.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
+from urllib.parse import urlparse
+
+import requests
+
+try:
+    from bs4 import BeautifulSoup
+    BS4_AVAILABLE = True
+except ImportError:
+    BeautifulSoup = None
+    BS4_AVAILABLE = False
 
 from core.contracts import ToolResult
 from tools.base import Tool
+
+
+def _fetch_basic_website_metadata(url: str, timeout: float = 4.0) -> dict:
+    """Lightweight, non-aggressive metadata fetch.
+    Returns title, description, domain or empty values on failure.
+    Never fabricates data."""
+    result = {"title": "", "description": "", "domain": ""}
+    if not BS4_AVAILABLE:
+        # Graceful degradation when beautifulsoup4 is missing
+        return result
+    try:
+        parsed = urlparse(url)
+        if not parsed.scheme:
+            url = "https://" + url
+        headers = {"User-Agent": "AgentCore/1.0 (personal use)"}
+        resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+        if resp.status_code != 200:
+            return result
+        soup = BeautifulSoup(resp.text, "html.parser")
+        # title
+        if soup.title and soup.title.string:
+            result["title"] = soup.title.string.strip()[:200]
+        # meta description
+        desc = soup.find("meta", attrs={"name": "description"})
+        if desc and desc.get("content"):
+            result["description"] = desc["content"].strip()[:300]
+        result["domain"] = parsed.netloc or parsed.path
+    except Exception:  # noqa: BLE001 — graceful failure, never block save
+        pass
+    return result
 
 _KINDS = ("website", "idea", "resource", "project", "note", "discovery")
 
@@ -38,10 +79,18 @@ class SaveWebsiteTool(Tool):
         url = (params.get("url") or "").strip()
         if not url:
             return ToolResult(ok=False, error="save_website: url is required")
-        name = (params.get("name") or url).strip()
+
+        # Auto-fetch basic metadata only when user did not provide name/description
+        meta = {}
+        if not params.get("name") and not params.get("description"):
+            meta = _fetch_basic_website_metadata(url)
+
+        name = (params.get("name") or meta.get("title") or url).strip()
+        description = params.get("description") or meta.get("description", "")
+
         item_id = self.personal.save(
             "website", name, url=url,
-            description=params.get("description", ""),
+            description=description,
             purpose=params.get("purpose", ""),
             usage=params.get("usage", ""),
             tags=params.get("tags", ""),
@@ -139,16 +188,21 @@ class PersonalBriefingTool(Tool):
         self.memory = memory   # MemoryManager for active-project context (optional)
 
     async def execute(self, params: dict[str, Any], ctx: dict[str, Any]) -> ToolResult:
+        active_project = None
         active_tags: list[str] = []
         if self.memory is not None:
             try:
                 wm = self.memory.load_working(ctx.get("session_id", ""))
                 task = wm.get("current_task") or ""
+                # Do NOT treat the current task text as an active project.
+                # Only use explicit related_project field set by the user.
+                # active_tags still extracted for fallback tag matching.
                 active_tags = [t.strip().lower() for t in task.split()
                                if len(t.strip()) > 2][:8]
             except Exception:  # noqa: BLE001
                 active_tags = []
-        brief = self.personal.briefing(active_project_tags=active_tags)
+        brief = self.personal.briefing(active_project=active_project,
+                                       active_project_tags=active_tags)
         return ToolResult(ok=True, data={"briefing": brief})
 
 

@@ -88,6 +88,11 @@ class _ScriptedTts:
         self.calls.append(text)
         return ("wav", self.payload)
 
+    async def synthesize_async(self, text: str) -> tuple[str, bytes]:
+        """Async path required by VoiceManager.run_once_async."""
+        self.calls.append(text)
+        return ("wav", self.payload)
+
     def health(self) -> dict:
         return {"name": self.name, "state": "READY", "detail": "", "fix": ""}
 

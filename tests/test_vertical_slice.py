@@ -203,8 +203,12 @@ async def test_pixel_diff_verification() -> None:
     b = tmp / "b.png"; make_png(b, "YouTube home", color=(200, 30, 30))
     from PIL import Image, ImageDraw, ImageFont
     img = Image.new("RGB", (720, 480), (120, 10, 10))  # very different background
+    try:
+        font = ImageFont.truetype(FONT, 56)
+    except Exception:
+        font = ImageFont.load_default()
     ImageDraw.Draw(img).text((30, 30), "YouTube", fill=(255, 255, 255),
-                             font=ImageFont.truetype(FONT, 56))
+                             font=font)
     img.save(b)
     same = tmp / "same.png"; make_png(same, "Home screen")
     await verifier.verify("youtube", a)            # stores prev frame

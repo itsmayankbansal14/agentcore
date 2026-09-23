@@ -31,7 +31,8 @@ _PKG_MODULE = {
     "rapidocr-onnxruntime": "rapidocr_onnxruntime", "psutil": "psutil",
     "playwright": "playwright",
     "pyyaml": "yaml", "pydantic-settings": "pydantic_settings",
-    "python-dotenv": "dotenv",
+    "python-dotenv": "dotenv", "beautifulsoup4": "bs4",
+    "edge-tts": "edge_tts", "faster-whisper": "faster_whisper",
 }
 
 

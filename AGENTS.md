@@ -65,7 +65,7 @@ ARCHITECTURE.md first.
 
 ## 4. Bootstrap / environment
 
-- Supported Python: `>= 3.11 AND < 3.13`. 3.13+ must be rejected. (The sandbox
+- Supported Python: Python 3.12 ONLY. 3.11 and 3.13+ must be rejected. (The sandbox
   default is 3.13 — use `uv python install 3.12` for real verification.)
 - Venv rule: frozen → bundled; inside `AgentCore/.venv` → continue; otherwise
   create `.venv` and re-exec `main.py` inside it. **Global deps are never

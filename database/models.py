@@ -281,6 +281,7 @@ class SavedItem(Base):
     tags: Mapped[str] = mapped_column(String, default="")     # comma-separated
     notes: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String, default="new", index=True)  # new|review|active|archived
+    related_project: Mapped[str] = mapped_column(String, default="")  # explicit link for briefing relevance
     created_at: Mapped[str] = mapped_column(String, default=now, index=True)
 
 

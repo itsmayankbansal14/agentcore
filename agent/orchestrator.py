@@ -180,6 +180,9 @@ class AgentOrchestrator:
         low = " ".join(text.lower().split())
         if not low:
             return False
+        from planning.direct import DirectToolRouter
+        if DirectToolRouter().route(text) is not None:
+            return False
         return any(re.search(p, low) for p in _CONTINUATION_MARKERS)
 
     def _capability_for(self, text: str) -> str:

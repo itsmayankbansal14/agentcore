@@ -3,7 +3,7 @@
 Pre-build verification gate (Phase 3 production readiness).
 
 Checks (each → PASS / FAIL / SKIP / WARN):
-  1. python_version   — requires >= 3.11
+  1. python_version   — requires == 3.12.x
   2. dependencies     — every dep in pyproject.toml importable
   3. config           — config/defaults.yaml exists (+ .env optional/warn)
   4. assets           — ui/dashboard.html + ui/legacy_jarvis/ present
@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-MIN_PYTHON = (3, 11)
+MIN_PYTHON = (3, 12)
 
 # package-name → import-name for deps that don't import under their pip name
 _IMPORT_ALIASES = {
@@ -76,12 +76,12 @@ class Report:
 # ---------------------------------------------------------------------------
 def check_python(report: Report) -> None:
     cur = sys.version_info[:2]
-    if cur >= MIN_PYTHON:
+    if cur == MIN_PYTHON:
         report.add("python_version", "PASS",
-                   f"{platform.python_version()} (>= {MIN_PYTHON[0]}.{MIN_PYTHON[1]})")
+                   f"{platform.python_version()} (== {MIN_PYTHON[0]}.{MIN_PYTHON[1]})")
     else:
         report.add("python_version", "FAIL",
-                   f"{platform.python_version()} — need >= {MIN_PYTHON[0]}.{MIN_PYTHON[1]}")
+                   f"{platform.python_version()} — need exactly {MIN_PYTHON[0]}.{MIN_PYTHON[1]}.x")
 
 
 def load_required_deps() -> list[str]:
@@ -279,7 +279,7 @@ def verify(skip: list[str] | None = None) -> Report:
 
 
 def _print_human(report: Report) -> None:
-    icons = {"PASS": "✅", "FAIL": "❌", "SKIP": "⏭️", "WARN": "⚠️"}
+    icons = {"PASS": "[PASS]", "FAIL": "[FAIL]", "SKIP": "[SKIP]", "WARN": "[WARN]"}
     print(f"\n  AgentCore build verification — {report.env['platform']} "
           f"(python {report.env['python']})")
     print("  " + "-" * 56)

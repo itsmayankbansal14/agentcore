@@ -1,8 +1,8 @@
 """AgentCore — tools/workflows/browser_workflow.py
-Browser workflow (REAL — Playwright async API + Chromium):
+Browser workflow (REAL — Playwright async API + visible Chromium):
   open browser → navigate to URL → wait for page load → verify URL → screenshot.
 
-No mocks: a real headless Chromium is launched, a real page navigates, the
+No mocks: a real visible Chromium window is launched, a real page navigates, the
 URL is verified against the target, and a real PNG screenshot is captured.
 Uses Playwright's ASYNC API because the executor runs tools inside asyncio
 (the sync API refuses inside a running loop).
@@ -35,7 +35,7 @@ class _BrowserBase(Tool):
 
 class BrowserOpen(_BrowserBase):
     name = "browser_open"
-    description = "Open a (headless) browser."
+    description = "Open a visible browser window on Windows."
     parameters = {"type": "object", "properties": {}}
     idempotent = True
 
@@ -45,10 +45,12 @@ class BrowserOpen(_BrowserBase):
         if st.get("page") is not None:
             return ToolResult(ok=True, data={"browser": "already open"})
         p = await async_playwright().start()
-        browser = await p.chromium.launch()
+        # This is user-facing Windows automation: headless Chromium is not a
+        # substitute because the user cannot see or use it.
+        browser = await p.chromium.launch(headless=False)
         page = await browser.new_page()
         st.update({"pw": p, "browser": browser, "page": page})
-        return ToolResult(ok=True, data={"browser": "chromium (headless)"})
+        return ToolResult(ok=True, data={"browser": "chromium (visible)"})
 
 
 class BrowserNavigate(_BrowserBase):

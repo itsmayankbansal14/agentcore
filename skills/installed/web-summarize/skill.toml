@@ -1,0 +1,17 @@
+[skill]
+name = "web-summarize"
+version = "0.1.0"
+description = "Search the web and summarize results"
+author = "agentcore"
+required_capabilities = ["network:fetch"]
+tags = ["search", "summarize"]
+
+[[skill.steps]]
+tool_name = "web_search"
+arguments_template = '{"query": "{query}"}'
+output_key = "results"
+
+[[skill.steps]]
+tool_name = "think"
+arguments_template = '{"thought": "Summarize: {results}"}'
+output_key = "summary"

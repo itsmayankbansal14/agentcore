@@ -38,6 +38,7 @@ from planner.planner import Planner
 from reasoning.base import Reasoner
 from reasoning.local_human import HumanReasoner, LocalReasoner
 from reasoning.llm import LLMReasoner
+from skills.catalog import SkillCatalog
 from tools.local import echo as echo_tools
 from tools.local import clipboard as clipboard_tools
 from tools.local import filesystem as fs_tools
@@ -150,7 +151,11 @@ class AgentApp:
 
         # reasoner for planning
         reasoner = reasoner or build_reasoner(config, llm)
-        planner = Planner(db.session_factory, reasoner)
+        
+        # skill catalog for planner
+        skill_catalog = SkillCatalog([config.root / "skills" / "installed"])
+        
+        planner = Planner(db.session_factory, reasoner, skill_catalog)
 
         # executor: owns the loop + policy (devices available in tool ctx)
         policy = ExecutionPolicy(

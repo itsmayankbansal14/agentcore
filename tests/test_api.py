@@ -158,6 +158,48 @@ def main() -> None:
     r = dash_client.get("/api/logs?lines=5")
     check("dashboard/app logs panel", r.status_code == 200 and "logs" in r.json())
 
+    print("\n[I] Voice & Speech subsystem endpoints")
+    r = client.get("/api/voice/health")
+    check("voice health", r.status_code == 200 and "stt" in r.json() and "tts" in r.json())
+    check("voice persona reported", "persona" in r.json())
+
+    # Personas listing
+    r = client.get("/api/voice/personas")
+    check("voice personas get", r.status_code == 200 and "personas" in r.json() and "active_persona" in r.json())
+
+    # Persona switching
+    r = client.post("/api/voice/persona", json={"persona": "friday"})
+    check("switch persona to friday", r.status_code == 200 and r.json().get("active_persona") == "friday")
+
+    r = client.post("/api/voice/persona", json={"persona": "jarvis"})
+    check("switch persona to jarvis", r.status_code == 200 and r.json().get("active_persona") == "jarvis")
+
+    r = client.post("/api/voice/persona", json={"persona": "invalid_persona"})
+    check("invalid persona rejected", r.status_code == 400)
+
+    # Synthesis via POST
+    r = client.post("/api/voice/synthesize", json={"text": "hello from AgentCore"})
+    check("voice synthesize post", r.status_code == 200 and len(r.content) > 0)
+    check("voice content-type header", r.headers.get("content-type", "").startswith("audio/"))
+
+    # Synthesis via GET query param (used for audio streaming)
+    r = client.get("/api/voice/synthesize?text=stream+test")
+    check("voice synthesize get", r.status_code == 200 and len(r.content) > 0)
+
+    # Synthesis validation error
+    r = client.post("/api/voice/synthesize", json={"text": ""})
+    check("voice synthesize empty text error", r.status_code == 400)
+
+    # Chat with speak=True flag
+    prov.enqueue("[ECHO]")
+    r = client.post("/api/chat", json={"message": "hello voice", "session_id": "api", "speak": True})
+    check("chat with speak flag", r.status_code == 200 and r.json().get("speak") is True)
+    check("chat returns audio_url", "audio_url" in r.json())
+
+    # Transcribe validation
+    r = client.post("/api/voice/transcribe", content=b"", headers={"content-type": "audio/wav"})
+    check("voice transcribe empty payload error", r.status_code == 400)
+
     print(f"\n{'='*40}\nPASSED: {PASS}   FAILED: {FAIL}")
     sys.exit(1 if FAIL else 0)
 

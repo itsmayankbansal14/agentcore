@@ -12,12 +12,18 @@ if TYPE_CHECKING:  # pragma: no cover
     from config.manager import ConfigManager
 
 
+import asyncio
+
 class TtsProvider:
     name = "base"
 
     def synthesize(self, text: str) -> tuple[str, bytes]:
         """Return (format, audio bytes). format ∈ {'mp3','wav'}."""
         raise NotImplementedError
+
+    async def synthesize_async(self, text: str) -> tuple[str, bytes]:
+        """Default async implementation uses thread for blocking synthesize()."""
+        return await asyncio.to_thread(self.synthesize, text)
 
     def health(self) -> dict:
         return {"name": self.name, "state": "BROKEN",
