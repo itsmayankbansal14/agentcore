@@ -5,38 +5,14 @@ app:
   log_dir: ./logs
 
 llm:
-  # Ordered fallback chain: first healthy provider wins.
   provider_priority:
-    - openrouter
     - openai
-    - gemini
-    - claude
-    - deepseek
-    - ollama
   default_model:
-    openrouter: openai/gpt-4o-mini
-    openai: gpt-4o-mini
-    gemini: gemini-2.0-flash
-    claude: claude-3-5-haiku-latest
-    deepseek: deepseek-chat
-    ollama: qwen2.5:7b
+    openai: auto
   base_url:
-    openrouter: https://openrouter.ai/api/v1
-    deepseek: https://api.deepseek.com/v1
-  headers:
-    openrouter:
-      HTTP-Referer: https://github.com/itsmayankbansal14/jarvis-and-friday-agents
-      X-Title: AgentCore
+    openai: http://127.0.0.1:31415/v1
   temperature: 0.7
   max_tokens: 700
-  # Per-provider key rotation (multiple keys tried in order before failing over).
-  keys:
-    openai: []          # populated from env OPENAI_API_KEY or keyring
-    gemini: []
-    claude: []
-    deepseek: []
-  cooldown_seconds: 300   # how long a rate-limited key stays out of rotation
-  max_context_messages: 40
 
 memory:
   stm_window_messages: 20
